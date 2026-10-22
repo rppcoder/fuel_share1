@@ -1,0 +1,6 @@
+{
+  "name": "FuelShare PWA",
+  "description": "Mobile-first PWA for managing shared three-wheeler trips, fuel expenses, driver contributions, payments, and monthly settlements in Sri Lanka with Supabase.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

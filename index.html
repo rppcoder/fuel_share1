@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>FuelShare – Shared Tuk-Tuk Trip & Fuel Accounting</title>
+    <meta
+      name="description"
+      content="Track shared three-wheeler trips, split fuel expenses, record driver contributions, and generate monthly settlement statements in Sri Lanka."
+    />
+    
+    <!-- OpenGraph Metadata -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="FuelShare" />
+    <meta property="og:title" content="FuelShare – Shared Tuk-Tuk Trip & Fuel Accounting" />
+    <meta
+      property="og:description"
+      content="Track shared three-wheeler trips, split fuel expenses, record driver contributions, and generate monthly settlement statements in Sri Lanka."
+    />
+    <meta property="og:image" content="/pwa-512x512.png" />
+    <meta property="og:locale" content="en_LK" />
+
+    <!-- Twitter / X Card Metadata -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="FuelShare – Shared Tuk-Tuk Trip & Fuel Accounting" />
+    <meta
+      name="twitter:description"
+      content="Track shared three-wheeler trips, split fuel expenses, record driver contributions, and generate monthly settlement statements in Sri Lanka."
+    />
+    <meta name="twitter:image" content="/pwa-512x512.png" />
+
+    <!-- Mobile PWA Capabilities -->
+    <meta name="theme-color" content="#047857" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="FuelShare" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+
+    <!-- Schema.org WebApplication Structured Data (JSON-LD) -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebApplication",
+      "name": "FuelShare",
+      "applicationCategory": "FinanceApplication",
+      "operatingSystem": "All",
+      "description": "Mobile-first PWA for managing shared three-wheeler trips, fuel expenses, driver contributions, payments, and monthly settlements in Sri Lanka.",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "LKR"
+      }
+    }
+    </script>
+  </head>
+  <body class="bg-slate-50 text-slate-900 select-none antialiased min-h-screen">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
