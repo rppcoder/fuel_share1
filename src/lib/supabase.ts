@@ -25,7 +25,7 @@ export function getSupabaseProjectId(url: string): string {
 }
 
 export const DEFAULT_SUPABASE_URL = 'https://vhketobtkxrogwgqeyvg.supabase.co';
-export const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZoa2V0b2J0a3hyb2d3Z3FleXZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjExNjkxNTksImV4cCI6MjA3Njc0NTE1OX0.i42i2E9T49XN15T251c8m9J5zX2r4y3B';
+export const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZoa2V0b2J0a3hyb2d3Z3FleXZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI2NjExNzksImV4cCI6MjA3Njc0NTE1OX0.WArFMVM9Uuw7YF9XbjVC2V3JJvgqh-SsEquDtaxF9wc';
 
 export function getSupabaseConfig(): SupabaseConfigInfo {
   const rawEnvUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
