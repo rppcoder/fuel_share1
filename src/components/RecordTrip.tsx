@@ -125,20 +125,6 @@ export const RecordTrip: React.FC<RecordTripProps> = ({
 
   return (
     <div className="space-y-5 pb-24 max-w-md mx-auto">
-      {/* Title */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
-        <div>
-          <h2 className="text-base font-extrabold text-slate-900">Record Three-Wheeler Trip</h2>
-          <p className="text-xs text-slate-500">Live odometer tracking & rate calculation</p>
-        </div>
-        <div className="text-right">
-          <span className="text-[10px] font-bold uppercase text-slate-400 block">Current Rate</span>
-          <span className="text-xs font-black text-emerald-700 font-mono">
-            Rs. {currentRate.toFixed(2)}/km
-          </span>
-        </div>
-      </div>
-
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Driver Selection */}
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-2">
@@ -364,6 +350,20 @@ export const RecordTrip: React.FC<RecordTripProps> = ({
           )}
         </button>
       </form>
+
+      {/* Title / Summary Card at the bottom of the page */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
+        <div>
+          <h2 className="text-base font-extrabold text-slate-900">Record Three-Wheeler Trip</h2>
+          <p className="text-xs text-slate-500">Live odometer tracking & rate calculation</p>
+        </div>
+        <div className="text-right">
+          <span className="text-[10px] font-bold uppercase text-slate-400 block">Current Rate</span>
+          <span className="text-xs font-black text-emerald-700 font-mono">
+            Rs. {currentRate.toFixed(2)}/km
+          </span>
+        </div>
+      </div>
     </div>
   );
 };
