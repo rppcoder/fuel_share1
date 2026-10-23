@@ -296,6 +296,43 @@ export default function App() {
 
   useEffect(() => {
     loadCloudData();
+
+    // Refetch state whenever the user focuses the browser tab or returns to the app
+    const handleFocusOrVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        loadCloudData();
+      }
+    };
+    window.addEventListener('focus', handleFocusOrVisibility);
+    document.addEventListener('visibilitychange', handleFocusOrVisibility);
+
+    // Setup Supabase Realtime subscription for instant live cross-device sync
+    const client = getSupabaseClient();
+    let channel: any = null;
+
+    if (client) {
+      try {
+        channel = client
+          .channel('public-db-sync')
+          .on('postgres_changes', { event: '*', schema: 'public' }, () => {
+            loadCloudData();
+          })
+          .subscribe();
+      } catch (err) {
+        console.warn('Realtime subscription notice:', err);
+      }
+    }
+
+    return () => {
+      window.removeEventListener('focus', handleFocusOrVisibility);
+      document.removeEventListener('visibilitychange', handleFocusOrVisibility);
+      if (channel) {
+        const currentClient = getSupabaseClient();
+        if (currentClient) {
+          currentClient.removeChannel(channel);
+        }
+      }
+    };
   }, [loadCloudData, supabaseConfig.isConfigured]);
 
   // Merge trips with driver entity lookup

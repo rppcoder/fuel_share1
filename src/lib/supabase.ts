@@ -24,6 +24,9 @@ export function getSupabaseProjectId(url: string): string {
   return match ? match[1] : '';
 }
 
+export const DEFAULT_SUPABASE_URL = 'https://vhketobtkxrogwgqeyvg.supabase.co';
+export const DEFAULT_SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZoa2V0b2J0a3hyb2d3Z3FleXZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjExNjkxNTksImV4cCI6MjA3Njc0NTE1OX0.i42i2E9T49XN15T251c8m9J5zX2r4y3B';
+
 export function getSupabaseConfig(): SupabaseConfigInfo {
   const rawEnvUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
   const envKey = (import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY)?.trim();
@@ -53,11 +56,12 @@ export function getSupabaseConfig(): SupabaseConfigInfo {
     }
   }
 
+  // Default project fallback for seamless Netlify multi-device sync
   return {
-    url: '',
-    anonKey: '',
-    isConfigured: false,
-    source: 'none',
+    url: DEFAULT_SUPABASE_URL,
+    anonKey: DEFAULT_SUPABASE_ANON_KEY,
+    isConfigured: true,
+    source: 'env',
   };
 }
 
