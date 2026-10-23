@@ -6,6 +6,7 @@ import { SupabaseSetupBanner } from './components/SupabaseSetupBanner';
 import { SupabaseConfigModal } from './components/SupabaseConfigModal';
 import { QASuiteModal } from './components/QASuiteModal';
 import { WhatsAppModal } from './components/WhatsAppModal';
+import { PWAInstallBanner } from './components/PWAInstallBanner';
 
 // Screens
 import { Dashboard } from './components/Dashboard';
@@ -1162,6 +1163,9 @@ export default function App() {
         vehicle={vehicle}
         month={selectedMonth}
       />
+
+      {/* Pop-Up PWA Install Banner */}
+      <PWAInstallBanner />
     </div>
   );
 }
