@@ -90,9 +90,9 @@ export const BottomNav: React.FC<BottomNavProps> = ({
         </div>
       )}
 
-      {/* Main Bottom Bar */}
-      <nav className="fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-200 shadow-lg pb-safe">
-        <div className="max-w-md mx-auto px-2 h-16 flex items-center justify-around">
+      {/* Main Bottom Bar - Elevated floating pill bar clear of Netlify badges & safe areas */}
+      <nav className="fixed bottom-2 left-2 right-2 max-w-md mx-auto z-40 bg-white/95 backdrop-blur-md border border-slate-200/90 shadow-2xl rounded-2xl pb-safe">
+        <div className="w-full px-2 h-16 flex items-center justify-around">
           {/* Dashboard */}
           <button
             onClick={() => handleSelect('dashboard')}

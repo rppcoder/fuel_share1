@@ -1,8 +1,22 @@
 @import "tailwindcss";
 
+/* Prevent Netlify floating badges/watermarks from covering bottom navigation */
+[data-netlify-badge],
+.netlify-badge,
+iframe[src*="netlify"],
+div[data-netlify-drawer],
+#netlify-drawer-container,
+[class*="netlify-badge"],
+[data-testid="netlify-badge"] {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+}
+
 @layer utilities {
   .pb-safe {
-    padding-bottom: env(safe-area-inset-bottom, 1rem);
+    padding-bottom: max(env(safe-area-inset-bottom, 0px), 10px);
   }
 }
 
@@ -15,4 +29,3 @@
     color: black !important;
   }
 }
-
