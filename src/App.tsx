@@ -223,6 +223,8 @@ export default function App() {
       if (vData) {
         setVehicle(vData);
         saveToStorage('vehicle', vData);
+      } else {
+        await client.from('vehicles').upsert(INITIAL_VEHICLE);
       }
 
       // 2. Drivers
@@ -230,6 +232,8 @@ export default function App() {
       if (dData && dData.length > 0) {
         setDrivers(dData);
         saveToStorage('drivers', dData);
+      } else {
+        await client.from('drivers').upsert(INITIAL_DRIVERS);
       }
 
       // 3. Rates
@@ -241,6 +245,8 @@ export default function App() {
         setActiveRate(rData[0]);
         saveToStorage('rate', rData[0]);
         setRatesHistory(rData);
+      } else {
+        await client.from('contribution_rates').upsert(INITIAL_RATE);
       }
 
       // 4. Trips
@@ -766,13 +772,20 @@ export default function App() {
       return false;
     }
     const client = getSupabaseClient();
-    setVehicle((prev) => {
-      const updated = { ...prev, ...updates, updated_at: new Date().toISOString() };
-      saveToStorage('vehicle', updated);
-      return updated;
-    });
+    const updatedVehicle = { ...vehicle, ...updates, updated_at: new Date().toISOString() };
+    setVehicle(updatedVehicle);
+    saveToStorage('vehicle', updatedVehicle);
+
     if (client) {
-      await client.from('vehicles').update(updates).eq('id', vehicle.id);
+      await client.from('vehicles').upsert({
+        id: updatedVehicle.id,
+        household_id: updatedVehicle.household_id,
+        name: updatedVehicle.name,
+        registration_identifier: updatedVehicle.registration_identifier,
+        vehicle_type: updatedVehicle.vehicle_type,
+        current_odometer_km: updatedVehicle.current_odometer_km,
+        updated_at: updatedVehicle.updated_at,
+      });
     }
     return true;
   };
@@ -798,12 +811,16 @@ export default function App() {
       saveToStorage('drivers', updated);
       return updated;
     });
+
     if (client) {
-      await client.from('drivers').insert({
+      await client.from('drivers').upsert({
+        id: newDriver.id,
         household_id: newDriver.household_id,
         display_name: newDriver.display_name,
         whatsapp_number: newDriver.whatsapp_number,
         active: newDriver.active,
+        created_at: newDriver.created_at,
+        updated_at: newDriver.updated_at,
       });
     }
     return true;
@@ -818,13 +835,25 @@ export default function App() {
       return false;
     }
     const client = getSupabaseClient();
+    let updatedList: Driver[] = [];
     setDrivers((prev) => {
-      const updated = prev.map((d) => (d.id === driverId ? { ...d, ...updates, updated_at: new Date().toISOString() } : d));
-      saveToStorage('drivers', updated);
-      return updated;
+      updatedList = prev.map((d) => (d.id === driverId ? { ...d, ...updates, updated_at: new Date().toISOString() } : d));
+      saveToStorage('drivers', updatedList);
+      return updatedList;
     });
+
     if (client) {
-      await client.from('drivers').update(updates).eq('id', driverId);
+      const targetDriver = updatedList.find((d) => d.id === driverId);
+      if (targetDriver) {
+        await client.from('drivers').upsert({
+          id: targetDriver.id,
+          household_id: targetDriver.household_id || vehicle.household_id,
+          display_name: targetDriver.display_name,
+          whatsapp_number: targetDriver.whatsapp_number || '',
+          active: targetDriver.active !== false,
+          updated_at: new Date().toISOString(),
+        });
+      }
     }
     return true;
   };
