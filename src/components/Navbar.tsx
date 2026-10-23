@@ -54,38 +54,13 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* PWA Install Button */}
           <PWAInstallButton />
 
-          {/* QA Suite Quick Launcher */}
-          <button
-            onClick={onOpenQA}
-            title="Run QA and Security Test Suite"
-            className="p-1.5 rounded-lg bg-emerald-800/80 hover:bg-emerald-700 text-emerald-200 hover:text-white transition"
-          >
-            <FlaskConical className="w-4 h-4 text-amber-300" />
-          </button>
-
-          {/* Supabase status indicator button */}
-          <button
-            onClick={onOpenConfig}
-            title={config.isConfigured ? 'Supabase Connected' : 'Supabase Not Connected'}
-            className={`p-1.5 rounded-lg border transition ${
-              config.isConfigured
-                ? 'bg-emerald-800 border-emerald-600 text-emerald-200 hover:text-white'
-                : 'bg-amber-500/20 border-amber-400 text-amber-300 hover:bg-amber-500/30'
-            }`}
-          >
-            <Database className="w-4 h-4" />
-          </button>
-
           {/* Role badge */}
           <div
             title={`Role: ${role === 'admin' ? 'Administrator' : 'Driver'}`}
             className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-800 text-emerald-200 text-xs font-semibold border border-emerald-700/60"
           >
             {role === 'admin' ? (
-              <>
-                <Shield className="w-3 h-3 text-amber-300" />
-                <span className="text-[11px]">Admin</span>
-              </>
+              <Shield className="w-3.5 h-3.5 text-amber-300" />
             ) : (
               <>
                 <User className="w-3 h-3 text-emerald-300" />

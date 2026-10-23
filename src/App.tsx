@@ -211,7 +211,12 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
   const [selectedMonth, setSelectedMonth] = useState<string>('2026-10');
-  const [userRole, setUserRole] = useState<UserRole>('admin');
+  const [userRole, setUserRole] = useState<UserRole>(() => getFromStorage<UserRole>('userRole', 'admin'));
+
+  const handleUpdateRole = useCallback((newRole: UserRole) => {
+    setUserRole(newRole);
+    saveToStorage('userRole', newRole);
+  }, []);
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfigInfo>(getSupabaseConfig());
 
   // Entities state with UUID validation
@@ -310,7 +315,8 @@ export default function App() {
       const { data: rData } = await client
         .from('contribution_rates')
         .select('*')
-        .order('effective_from', { ascending: false });
+        .order('effective_from', { ascending: false })
+        .order('created_at', { ascending: false });
       if (rData && rData.length > 0) {
         setActiveRate(rData[0]);
         saveToStorage('rate', rData[0]);
@@ -1001,15 +1007,11 @@ export default function App() {
         onSelectScreen={handleNavigateScreen}
       />
 
-      {/* Persistent Supabase Connection Notice Banner */}
-      <SupabaseSetupBanner onRefreshState={refreshConfig} />
 
-      {/* Offline Status & Pending Drafts Alert */}
-      <OfflineIndicator onSyncDrafts={handleSyncOfflineDrafts} isSyncing={isSyncingDrafts} />
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-md mx-auto w-full px-4 pt-4">
-          {currentScreen === 'dashboard' && (
+        {currentScreen === 'dashboard' && (
           <Dashboard
             report={monthlyReport}
             selectedMonth={selectedMonth}
@@ -1099,7 +1101,7 @@ export default function App() {
             activeRate={activeRate}
             ratesHistory={ratesHistory}
             role={userRole}
-            onUpdateRole={setUserRole}
+            onUpdateRole={handleUpdateRole}
             onUpdateVehicle={handleUpdateVehicle}
             onAddDriver={handleAddDriver}
             onUpdateDriver={handleUpdateDriver}
@@ -1108,26 +1110,6 @@ export default function App() {
             onOpenSupabaseConfig={() => setShowConfigModal(true)}
             onOpenQASuite={() => setShowQASuiteModal(true)}
           />
-        )}
-
-        {currentScreen === 'qa_suite' && (
-          <div className="space-y-4 pb-24">
-            <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex items-center justify-between">
-              <div>
-                <h2 className="text-base font-extrabold text-slate-900">QA Test Runner</h2>
-                <p className="text-xs text-slate-500">Continuous accounting & security verification</p>
-              </div>
-              <button
-                onClick={() => setShowQASuiteModal(true)}
-                className="px-3 py-1.5 bg-slate-900 text-white rounded-xl text-xs font-bold shadow"
-              >
-                Open Full Suite
-              </button>
-            </div>
-            <p className="text-xs text-slate-600 leading-relaxed bg-white p-4 rounded-2xl border border-slate-200">
-              The automated QA Suite tests all 17 specifications defined in section 11: 32 km calculation at Rs. 35/km, odometer sequence rejection, incomplete trip exclusions, rate snapshot immutability, payment allocation, fuel vs contribution separation, multi-device sync, RLS isolation, role-based controls, private storage buckets, idempotency, audit trail logging, corrupted JSON defense, WhatsApp parameters, and zero service-role keys.
-            </p>
-          </div>
         )}
       </main>
 

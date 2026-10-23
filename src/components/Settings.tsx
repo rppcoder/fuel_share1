@@ -529,39 +529,6 @@ export const Settings: React.FC<SettingsProps> = ({
           </div>
         )}
       </form>
-
-      {/* Cloud & QA Suite Shortcuts */}
-      <div className="space-y-2">
-        <button
-          onClick={onOpenSupabaseConfig}
-          className="w-full p-4 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center justify-between text-left hover:bg-slate-50 transition"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-emerald-100 text-emerald-800 flex items-center justify-center">
-              <KeyRound className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="text-xs font-bold text-slate-900">Supabase Connection & SQL Migration</div>
-              <div className="text-[11px] text-slate-500">Configure PostgreSQL & storage keys</div>
-            </div>
-          </div>
-        </button>
-
-        <button
-          onClick={onOpenQASuite}
-          className="w-full p-4 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center justify-between text-left hover:bg-slate-50 transition"
-        >
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center">
-              <FlaskConical className="w-5 h-5" />
-            </div>
-            <div>
-              <div className="text-xs font-bold text-slate-900">Run QA & Security Verification Suite</div>
-              <div className="text-[11px] text-slate-500">Test all 17 automated specifications</div>
-            </div>
-          </div>
-        </button>
-      </div>
     </div>
   );
 };
