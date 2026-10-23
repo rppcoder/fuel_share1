@@ -43,10 +43,40 @@ import {
 } from './lib/offlineDrafts';
 import { saveToStorage, getFromStorage } from './lib/persistence';
 
-// Default initial state for Colombo three-wheeler context
+// UUID helper functions
+export function generateUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, (c) =>
+    (
+      Number(c) ^
+      (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (Number(c) / 4)))
+    ).toString(16)
+  );
+}
+
+export const isValidUuid = (str: any): boolean =>
+  typeof str === 'string' &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
+export const ensureUuid = (id: string | null | undefined, defaultUuid: string): string =>
+  isValidUuid(id) ? id! : defaultUuid;
+
+// Standard PostgreSQL UUIDs for default initial state
+export const DEFAULT_HOUSEHOLD_ID = '00000000-0000-4000-8000-000000000001';
+export const DEFAULT_VEHICLE_ID = '00000000-0000-4000-8000-000000000002';
+export const DEFAULT_DRIVER1_ID = '00000000-0000-4000-8000-000000000003';
+export const DEFAULT_DRIVER2_ID = '00000000-0000-4000-8000-000000000004';
+export const DEFAULT_RATE_ID = '00000000-0000-4000-8000-000000000005';
+export const DEFAULT_TRIP1_ID = '00000000-0000-4000-8000-000000000006';
+export const DEFAULT_TRIP2_ID = '00000000-0000-4000-8000-000000000007';
+export const DEFAULT_FUEL_ID = '00000000-0000-4000-8000-000000000008';
+export const DEFAULT_PAYMENT_ID = '00000000-0000-4000-8000-000000000009';
+
 const INITIAL_VEHICLE: Vehicle = {
-  id: 'veh-001',
-  household_id: 'hh-colombo-01',
+  id: DEFAULT_VEHICLE_ID,
+  household_id: DEFAULT_HOUSEHOLD_ID,
   name: 'Bajaj RE Tuk-Tuk',
   registration_identifier: 'ABV 9408',
   vehicle_type: 'three_wheeler',
@@ -57,8 +87,8 @@ const INITIAL_VEHICLE: Vehicle = {
 
 const INITIAL_DRIVERS: Driver[] = [
   {
-    id: 'drv-001',
-    household_id: 'hh-colombo-01',
+    id: DEFAULT_DRIVER1_ID,
+    household_id: DEFAULT_HOUSEHOLD_ID,
     display_name: 'Kamal Perera',
     whatsapp_number: '0771234567',
     active: true,
@@ -66,8 +96,8 @@ const INITIAL_DRIVERS: Driver[] = [
     updated_at: new Date().toISOString(),
   },
   {
-    id: 'drv-002',
-    household_id: 'hh-colombo-01',
+    id: DEFAULT_DRIVER2_ID,
+    household_id: DEFAULT_HOUSEHOLD_ID,
     display_name: 'Sunil Silva',
     whatsapp_number: '0719876543',
     active: true,
@@ -77,9 +107,9 @@ const INITIAL_DRIVERS: Driver[] = [
 ];
 
 const INITIAL_RATE: ContributionRate = {
-  id: 'rate-001',
-  household_id: 'hh-colombo-01',
-  vehicle_id: 'veh-001',
+  id: DEFAULT_RATE_ID,
+  household_id: DEFAULT_HOUSEHOLD_ID,
+  vehicle_id: DEFAULT_VEHICLE_ID,
   amount_per_km: 35.0,
   effective_from: '2026-10-01',
   created_at: new Date().toISOString(),
@@ -87,10 +117,10 @@ const INITIAL_RATE: ContributionRate = {
 
 const INITIAL_TRIPS: Trip[] = [
   {
-    id: 'trip-101',
-    household_id: 'hh-colombo-01',
-    vehicle_id: 'veh-001',
-    driver_id: 'drv-001',
+    id: DEFAULT_TRIP1_ID,
+    household_id: DEFAULT_HOUSEHOLD_ID,
+    vehicle_id: DEFAULT_VEHICLE_ID,
+    driver_id: DEFAULT_DRIVER1_ID,
     trip_date: '2026-10-18',
     start_odometer_km: 12380.0,
     end_odometer_km: 12412.0,
@@ -103,10 +133,10 @@ const INITIAL_TRIPS: Trip[] = [
     updated_at: '2026-10-18T10:00:00Z',
   },
   {
-    id: 'trip-102',
-    household_id: 'hh-colombo-01',
-    vehicle_id: 'veh-001',
-    driver_id: 'drv-002',
+    id: DEFAULT_TRIP2_ID,
+    household_id: DEFAULT_HOUSEHOLD_ID,
+    vehicle_id: DEFAULT_VEHICLE_ID,
+    driver_id: DEFAULT_DRIVER2_ID,
     trip_date: '2026-10-19',
     start_odometer_km: 12412.0,
     end_odometer_km: 12450.0,
@@ -122,9 +152,9 @@ const INITIAL_TRIPS: Trip[] = [
 
 const INITIAL_FUEL: FuelPurchase[] = [
   {
-    id: 'fuel-001',
-    household_id: 'hh-colombo-01',
-    vehicle_id: 'veh-001',
+    id: DEFAULT_FUEL_ID,
+    household_id: DEFAULT_HOUSEHOLD_ID,
+    vehicle_id: DEFAULT_VEHICLE_ID,
     purchase_date: '2026-10-18',
     fuel_type: 'Petrol 92 Octane',
     amount_lkr: 3450.0,
@@ -138,9 +168,9 @@ const INITIAL_FUEL: FuelPurchase[] = [
 
 const INITIAL_PAYMENTS: Payment[] = [
   {
-    id: 'pay-001',
-    household_id: 'hh-colombo-01',
-    driver_id: 'drv-001',
+    id: DEFAULT_PAYMENT_ID,
+    household_id: DEFAULT_HOUSEHOLD_ID,
+    driver_id: DEFAULT_DRIVER1_ID,
     amount_lkr: 1000.0,
     payment_date: '2026-10-20',
     payment_method: 'cash',
@@ -183,16 +213,48 @@ export default function App() {
   const [userRole, setUserRole] = useState<UserRole>('admin');
   const [supabaseConfig, setSupabaseConfig] = useState<SupabaseConfigInfo>(getSupabaseConfig());
 
-  // Entities state
-  const [vehicle, setVehicle] = useState<Vehicle>(() => getFromStorage('vehicle', INITIAL_VEHICLE));
-  const [drivers, setDrivers] = useState<Driver[]>(() => getFromStorage('drivers', INITIAL_DRIVERS));
-  const [activeRate, setActiveRate] = useState<ContributionRate>(() => getFromStorage('rate', INITIAL_RATE));
+  // Entities state with UUID validation
+  const [vehicle, setVehicle] = useState<Vehicle>(() => {
+    const stored = getFromStorage<Vehicle>('vehicle', INITIAL_VEHICLE);
+    if (!isValidUuid(stored?.id)) return INITIAL_VEHICLE;
+    return stored;
+  });
+  const [drivers, setDrivers] = useState<Driver[]>(() => {
+    const stored = getFromStorage<Driver[]>('drivers', INITIAL_DRIVERS);
+    if (!Array.isArray(stored) || stored.some((d) => !isValidUuid(d.id))) return INITIAL_DRIVERS;
+    return stored;
+  });
+  const [activeRate, setActiveRate] = useState<ContributionRate>(() => {
+    const stored = getFromStorage<ContributionRate>('rate', INITIAL_RATE);
+    if (!isValidUuid(stored?.id)) return INITIAL_RATE;
+    return stored;
+  });
   const [ratesHistory, setRatesHistory] = useState<ContributionRate[]>([INITIAL_RATE]);
-  const [trips, setTrips] = useState<Trip[]>(() => getFromStorage('trips', INITIAL_TRIPS));
-  const [fuelPurchases, setFuelPurchases] = useState<FuelPurchase[]>(() => getFromStorage('fuel', INITIAL_FUEL));
-  const [expenses, setExpenses] = useState<Expense[]>(() => getFromStorage('expenses', []));
-  const [payments, setPayments] = useState<Payment[]>(() => getFromStorage('payments', INITIAL_PAYMENTS));
-  const [settlements, setSettlements] = useState<Settlement[]>(() => getFromStorage('settlements', []));
+  const [trips, setTrips] = useState<Trip[]>(() => {
+    const stored = getFromStorage<Trip[]>('trips', INITIAL_TRIPS);
+    if (!Array.isArray(stored) || stored.some((t) => !isValidUuid(t.id))) return INITIAL_TRIPS;
+    return stored;
+  });
+  const [fuelPurchases, setFuelPurchases] = useState<FuelPurchase[]>(() => {
+    const stored = getFromStorage<FuelPurchase[]>('fuel', INITIAL_FUEL);
+    if (!Array.isArray(stored) || stored.some((f) => !isValidUuid(f.id))) return INITIAL_FUEL;
+    return stored;
+  });
+  const [expenses, setExpenses] = useState<Expense[]>(() => {
+    const stored = getFromStorage<Expense[]>('expenses', []);
+    if (!Array.isArray(stored) || stored.some((e) => !isValidUuid(e.id))) return [];
+    return stored;
+  });
+  const [payments, setPayments] = useState<Payment[]>(() => {
+    const stored = getFromStorage<Payment[]>('payments', INITIAL_PAYMENTS);
+    if (!Array.isArray(stored) || stored.some((p) => !isValidUuid(p.id))) return INITIAL_PAYMENTS;
+    return stored;
+  });
+  const [settlements, setSettlements] = useState<Settlement[]>(() => {
+    const stored = getFromStorage<Settlement[]>('settlements', []);
+    if (!Array.isArray(stored) || stored.some((s) => !isValidUuid(s.id))) return [];
+    return stored;
+  });
 
   // Modals state
   const [showConfigModal, setShowConfigModal] = useState<boolean>(false);
@@ -218,9 +280,16 @@ export default function App() {
     if (!client) return;
 
     try {
+      // 0. Ensure default household row exists in Supabase so foreign key checks pass
+      await client.from('households').upsert({
+        id: DEFAULT_HOUSEHOLD_ID,
+        name: 'Colombo Household',
+        created_at: new Date().toISOString(),
+      });
+
       // 1. Vehicle
       const { data: vData } = await client.from('vehicles').select('*').limit(1).maybeSingle();
-      if (vData) {
+      if (vData && isValidUuid(vData.id)) {
         setVehicle(vData);
         saveToStorage('vehicle', vData);
       } else {
@@ -430,12 +499,12 @@ export default function App() {
     const client = getSupabaseClient();
     const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
 
-    const newTripId = 'trip-' + Date.now();
+    const newTripId = generateUuid();
     const completeTrip: Trip = {
       id: newTripId,
-      household_id: vehicle.household_id,
-      vehicle_id: vehicle.id,
-      driver_id: tripData.driver_id!,
+      household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
+      vehicle_id: ensureUuid(vehicle.id, DEFAULT_VEHICLE_ID),
+      driver_id: ensureUuid(tripData.driver_id, DEFAULT_DRIVER1_ID),
       trip_date: tripData.trip_date!,
       start_odometer_km: tripData.start_odometer_km!,
       end_odometer_km: tripData.end_odometer_km ?? null,
@@ -453,6 +522,7 @@ export default function App() {
         const { data, error } = await client
           .from('trips')
           .insert({
+            id: completeTrip.id,
             household_id: completeTrip.household_id,
             vehicle_id: completeTrip.vehicle_id,
             driver_id: completeTrip.driver_id,
@@ -468,7 +538,7 @@ export default function App() {
           .single();
 
         if (error) {
-          console.warn('Supabase insert failed, saving to local drafts:', error.message);
+          console.warn('Supabase insert notice:', error.message);
           saveOfflineDraft(completeTrip);
         } else if (data) {
           completeTrip.id = data.id;
@@ -477,18 +547,15 @@ export default function App() {
         saveOfflineDraft(completeTrip);
       }
     } else {
-      // Save to managed offline drafts queue
       saveOfflineDraft(completeTrip);
     }
 
-    // Update state immediately
     setTrips((prev) => {
       const updated = [completeTrip, ...prev];
       saveToStorage('trips', updated);
       return updated;
     });
 
-    // Update vehicle odometer if completed
     if (completeTrip.status === 'completed' && completeTrip.end_odometer_km) {
       const newOdo = Math.max(vehicle.current_odometer_km, completeTrip.end_odometer_km);
       setVehicle((v) => {
@@ -512,14 +579,12 @@ export default function App() {
     const client = getSupabaseClient();
     const oldTrip = trips.find((t) => t.id === tripId);
 
-    // Update local state
     setTrips((prev) => {
       const updated = prev.map((t) => (t.id === tripId ? { ...t, ...updates, updated_at: new Date().toISOString() } : t));
       saveToStorage('trips', updated);
       return updated;
     });
 
-    // Update vehicle odometer if completed
     if (updates.end_odometer_km && updates.status === 'completed') {
       const newOdo = Math.max(vehicle.current_odometer_km, updates.end_odometer_km);
       setVehicle((v) => {
@@ -531,9 +596,9 @@ export default function App() {
 
     if (client) {
       await client.from('trips').update(updates).eq('id', tripId);
-      // Append audit log
       await client.from('audit_logs').insert({
-        household_id: vehicle.household_id,
+        id: generateUuid(),
+        household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
         entity_type: 'trip',
         entity_id: tripId,
         action: 'update_trip',
@@ -558,7 +623,8 @@ export default function App() {
     if (client) {
       await client.from('trips').update({ status: 'void' }).eq('id', tripId);
       await client.from('audit_logs').insert({
-        household_id: vehicle.household_id,
+        id: generateUuid(),
+        household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
         entity_type: 'trip',
         entity_id: tripId,
         action: 'void_trip',
@@ -574,9 +640,9 @@ export default function App() {
   const handleAddFuel = async (fuelData: Partial<FuelPurchase>): Promise<boolean> => {
     const client = getSupabaseClient();
     const newFuel: FuelPurchase = {
-      id: 'fuel-' + Date.now(),
-      household_id: vehicle.household_id,
-      vehicle_id: vehicle.id,
+      id: generateUuid(),
+      household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
+      vehicle_id: ensureUuid(vehicle.id, DEFAULT_VEHICLE_ID),
       purchase_date: fuelData.purchase_date!,
       fuel_type: fuelData.fuel_type || 'Petrol 92 Octane',
       amount_lkr: fuelData.amount_lkr!,
@@ -596,6 +662,7 @@ export default function App() {
 
     if (client) {
       await client.from('fuel_purchases').insert({
+        id: newFuel.id,
         household_id: newFuel.household_id,
         vehicle_id: newFuel.vehicle_id,
         purchase_date: newFuel.purchase_date,
@@ -615,9 +682,9 @@ export default function App() {
   const handleAddExpense = async (expenseData: Partial<Expense>): Promise<boolean> => {
     const client = getSupabaseClient();
     const newExpense: Expense = {
-      id: 'exp-' + Date.now(),
-      household_id: vehicle.household_id,
-      vehicle_id: vehicle.id,
+      id: generateUuid(),
+      household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
+      vehicle_id: ensureUuid(vehicle.id, DEFAULT_VEHICLE_ID),
       expense_date: expenseData.expense_date!,
       category: expenseData.category || 'maintenance',
       amount_lkr: expenseData.amount_lkr!,
@@ -635,6 +702,7 @@ export default function App() {
 
     if (client) {
       await client.from('expenses').insert({
+        id: newExpense.id,
         household_id: newExpense.household_id,
         vehicle_id: newExpense.vehicle_id,
         expense_date: newExpense.expense_date,
@@ -653,9 +721,9 @@ export default function App() {
   const handleAddPayment = async (paymentData: Partial<Payment>): Promise<boolean> => {
     const client = getSupabaseClient();
     const newPayment: Payment = {
-      id: 'pay-' + Date.now(),
-      household_id: vehicle.household_id,
-      driver_id: paymentData.driver_id!,
+      id: generateUuid(),
+      household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
+      driver_id: ensureUuid(paymentData.driver_id, DEFAULT_DRIVER1_ID),
       amount_lkr: paymentData.amount_lkr!,
       payment_date: paymentData.payment_date!,
       payment_method: paymentData.payment_method || 'cash',
@@ -673,6 +741,7 @@ export default function App() {
 
     if (client) {
       await client.from('payments').insert({
+        id: newPayment.id,
         household_id: newPayment.household_id,
         driver_id: newPayment.driver_id,
         amount_lkr: newPayment.amount_lkr,
@@ -691,9 +760,9 @@ export default function App() {
   const handleConfirmSettlement = async (month: string, summary: any): Promise<boolean> => {
     const client = getSupabaseClient();
     const settlementRecord: Settlement = {
-      id: 'settle-' + month,
-      household_id: vehicle.household_id,
-      vehicle_id: vehicle.id,
+      id: generateUuid(),
+      household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
+      vehicle_id: ensureUuid(vehicle.id, DEFAULT_VEHICLE_ID),
       settlement_month: month,
       status: 'confirmed',
       summary_snapshot: summary,
@@ -711,15 +780,17 @@ export default function App() {
 
     if (client) {
       await client.from('settlements').upsert({
-        household_id: vehicle.household_id,
-        vehicle_id: vehicle.id,
+        id: settlementRecord.id,
+        household_id: settlementRecord.household_id,
+        vehicle_id: settlementRecord.vehicle_id,
         settlement_month: month,
         status: 'confirmed',
         summary_snapshot: summary,
         confirmed_at: new Date().toISOString(),
       });
       await client.from('audit_logs').insert({
-        household_id: vehicle.household_id,
+        id: generateUuid(),
+        household_id: settlementRecord.household_id,
         entity_type: 'settlement',
         entity_id: settlementRecord.id,
         action: 'confirm_settlement',
@@ -754,9 +825,10 @@ export default function App() {
         .match({ household_id: vehicle.household_id, vehicle_id: vehicle.id, settlement_month: month });
 
       await client.from('audit_logs').insert({
-        household_id: vehicle.household_id,
+        id: generateUuid(),
+        household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
         entity_type: 'settlement',
-        entity_id: existing?.id || month,
+        entity_id: existing?.id || generateUuid(),
         action: 'amend_settlement',
         new_values: { month, reason },
       });
@@ -778,8 +850,8 @@ export default function App() {
 
     if (client) {
       await client.from('vehicles').upsert({
-        id: updatedVehicle.id,
-        household_id: updatedVehicle.household_id,
+        id: ensureUuid(updatedVehicle.id, DEFAULT_VEHICLE_ID),
+        household_id: ensureUuid(updatedVehicle.household_id, DEFAULT_HOUSEHOLD_ID),
         name: updatedVehicle.name,
         registration_identifier: updatedVehicle.registration_identifier,
         vehicle_type: updatedVehicle.vehicle_type,
@@ -797,8 +869,8 @@ export default function App() {
     }
     const client = getSupabaseClient();
     const newDriver: Driver = {
-      id: 'drv-' + Date.now(),
-      household_id: vehicle.household_id,
+      id: generateUuid(),
+      household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
       display_name: driverData.display_name!,
       whatsapp_number: driverData.whatsapp_number || '',
       active: true,
@@ -845,14 +917,17 @@ export default function App() {
     if (client) {
       const targetDriver = updatedList.find((d) => d.id === driverId);
       if (targetDriver) {
-        await client.from('drivers').upsert({
-          id: targetDriver.id,
-          household_id: targetDriver.household_id || vehicle.household_id,
+        const { error } = await client.from('drivers').upsert({
+          id: ensureUuid(targetDriver.id, generateUuid()),
+          household_id: ensureUuid(targetDriver.household_id, DEFAULT_HOUSEHOLD_ID),
           display_name: targetDriver.display_name,
           whatsapp_number: targetDriver.whatsapp_number || '',
           active: targetDriver.active !== false,
           updated_at: new Date().toISOString(),
         });
+        if (error) {
+          console.error('Failed to update driver in Supabase:', error.message);
+        }
       }
     }
     return true;
@@ -882,9 +957,9 @@ export default function App() {
     }
     const client = getSupabaseClient();
     const newRateObj: ContributionRate = {
-      id: 'rate-' + Date.now(),
-      household_id: vehicle.household_id,
-      vehicle_id: vehicle.id,
+      id: generateUuid(),
+      household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
+      vehicle_id: ensureUuid(vehicle.id, DEFAULT_VEHICLE_ID),
       amount_per_km: ratePerKm,
       effective_from: effectiveFrom,
       created_at: new Date().toISOString(),
