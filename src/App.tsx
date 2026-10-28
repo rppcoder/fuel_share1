@@ -36,7 +36,11 @@ import {
   getSupabaseConfig,
   SupabaseConfigInfo,
 } from './lib/supabase';
-import { generateMonthlyReport } from './lib/accounting';
+import {
+  generateMonthlyReport,
+  DEFAULT_ADMIN_DRIVER_ID,
+  isAdminDriver,
+} from './lib/accounting';
 import {
   getOfflineDrafts,
   saveOfflineDraft,
@@ -212,6 +216,22 @@ export default function App() {
   }, []);
   const [selectedMonth, setSelectedMonth] = useState<string>('2026-10');
   const [userRole, setUserRole] = useState<UserRole>(() => getFromStorage<UserRole>('userRole', 'admin'));
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    return getFromStorage<'light' | 'dark'>('theme', 'light');
+  });
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    saveToStorage('theme', theme);
+  }, [theme]);
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => (prev === 'dark' ? 'light' : 'dark'));
+  }, []);
 
   const handleUpdateRole = useCallback((newRole: UserRole) => {
     setUserRole(newRole);
@@ -417,6 +437,11 @@ export default function App() {
     };
   }, [loadCloudData, supabaseConfig.isConfigured]);
 
+  // Regular drivers (excluding Admin) so Admin is never shown as a separate driver
+  const regularDrivers = useMemo(() => {
+    return drivers.filter((d) => !isAdminDriver(d));
+  }, [drivers]);
+
   // Merge trips with driver entity lookup
   const enrichedTrips = useMemo(() => {
     return trips.map((t) => {
@@ -427,6 +452,16 @@ export default function App() {
       };
     });
   }, [trips, drivers]);
+
+  // Regular driver trips (excluding Admin runs so Admin runs are not shown in the "Trips" section)
+  const driverTrips = useMemo(() => {
+    return enrichedTrips.filter((t) => !isAdminDriver(t.driver, t.driver_id));
+  }, [enrichedTrips]);
+
+  // Trips recorded by Admin (shown exclusively in the separate Admin Trips section inside Admin Panel)
+  const adminTrips = useMemo(() => {
+    return enrichedTrips.filter((t) => isAdminDriver(t.driver, t.driver_id));
+  }, [enrichedTrips]);
 
   // Merge payments with driver entity lookup
   const enrichedPayments = useMemo(() => {
@@ -516,8 +551,8 @@ export default function App() {
       start_odometer_km: tripData.start_odometer_km!,
       end_odometer_km: tripData.end_odometer_km ?? null,
       distance_km: tripData.distance_km || 0,
-      rate_per_km_snapshot: tripData.rate_per_km_snapshot || activeRate.amount_per_km,
-      calculated_contribution: tripData.calculated_contribution || 0,
+      rate_per_km_snapshot: tripData.rate_per_km_snapshot ?? activeRate.amount_per_km,
+      calculated_contribution: tripData.calculated_contribution ?? 0,
       status: tripData.status || 'completed',
       notes: tripData.notes || null,
       created_at: new Date().toISOString(),
@@ -576,6 +611,49 @@ export default function App() {
     }
 
     return true;
+  };
+
+  // Record an Admin trip from the Admin Panel (adds to Total Run KM without billing a driver)
+  const handleSaveAdminTrip = async (tripData: Partial<Trip>): Promise<boolean> => {
+    const client = getSupabaseClient();
+    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
+
+    let adminDrv = drivers.find((d) => isAdminDriver(d));
+    if (!adminDrv) {
+      adminDrv = {
+        id: DEFAULT_ADMIN_DRIVER_ID,
+        household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
+        display_name: 'Admin',
+        whatsapp_number: '',
+        active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      setDrivers((prev) => {
+        const updated = [...prev, adminDrv!];
+        saveToStorage('drivers', updated);
+        return updated;
+      });
+      if (client && isOnline) {
+        await client.from('drivers').upsert({
+          id: adminDrv.id,
+          household_id: adminDrv.household_id,
+          display_name: adminDrv.display_name,
+          whatsapp_number: adminDrv.whatsapp_number,
+          active: true,
+          created_at: adminDrv.created_at,
+          updated_at: adminDrv.updated_at,
+        });
+      }
+    }
+
+    return handleSaveTrip({
+      ...tripData,
+      driver_id: adminDrv.id,
+      rate_per_km_snapshot: 0,
+      calculated_contribution: 0,
+      status: 'completed',
+    });
   };
 
   const handleUpdateTrip = async (
@@ -996,7 +1074,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100/70 text-slate-900 flex flex-col font-sans">
+    <div className="min-h-screen bg-slate-100/70 dark:bg-slate-900 text-slate-900 dark:text-slate-100 flex flex-col font-sans transition-colors duration-200">
       {/* Top Header Navbar */}
       <Navbar
         vehicle={vehicle}
@@ -1020,7 +1098,7 @@ export default function App() {
             onSelectDriverForWhatsApp={(summary) =>
               setWhatsAppModalData({ isOpen: true, summary })
             }
-            recentTrips={enrichedTrips}
+            recentTrips={driverTrips}
             recentFuel={fuelPurchases}
             recentExpenses={expenses}
             recentPayments={enrichedPayments}
@@ -1030,7 +1108,7 @@ export default function App() {
         {currentScreen === 'record_trip' && (
           <RecordTrip
             vehicle={vehicle}
-            drivers={drivers}
+            drivers={regularDrivers}
             activeRate={activeRate}
             lastOdometer={vehicle.current_odometer_km}
             onSaveTrip={handleSaveTrip}
@@ -1040,8 +1118,8 @@ export default function App() {
 
         {currentScreen === 'trips' && (
           <TripHistory
-            trips={enrichedTrips}
-            drivers={drivers}
+            trips={driverTrips}
+            drivers={regularDrivers}
             role={userRole}
             vehicle={vehicle}
             onUpdateTrip={handleUpdateTrip}
@@ -1063,7 +1141,7 @@ export default function App() {
         {currentScreen === 'payments' && (
           <Payments
             payments={enrichedPayments}
-            drivers={drivers}
+            drivers={regularDrivers}
             role={userRole}
             currentMonth={selectedMonth}
             onAddPayment={handleAddPayment}
@@ -1086,27 +1164,34 @@ export default function App() {
             report={monthlyReport}
             selectedMonth={selectedMonth}
             vehicle={vehicle}
-            trips={enrichedTrips}
+            trips={driverTrips}
             payments={enrichedPayments}
             fuelPurchases={fuelPurchases}
             expenses={expenses}
-            drivers={drivers}
+            drivers={regularDrivers}
           />
         )}
 
         {(currentScreen === 'admin' || currentScreen === 'settings') && (
           <Settings
             vehicle={vehicle}
-            drivers={drivers}
+            drivers={regularDrivers}
             activeRate={activeRate}
             ratesHistory={ratesHistory}
             role={userRole}
+            theme={theme}
+            onToggleTheme={toggleTheme}
             onUpdateRole={handleUpdateRole}
             onUpdateVehicle={handleUpdateVehicle}
             onAddDriver={handleAddDriver}
             onUpdateDriver={handleUpdateDriver}
             onDeleteDriver={handleDeleteDriver}
             onSetNewRate={handleSetNewRate}
+            adminTrips={adminTrips}
+            monthlyReport={monthlyReport}
+            onSaveAdminTrip={handleSaveAdminTrip}
+            onUpdateTrip={handleUpdateTrip}
+            onVoidTrip={handleVoidTrip}
             onOpenSupabaseConfig={() => setShowConfigModal(true)}
             onOpenQASuite={() => setShowQASuiteModal(true)}
           />

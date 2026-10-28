@@ -95,6 +95,26 @@ export function calculateTrip(
   };
 }
 
+export const DEFAULT_ADMIN_DRIVER_ID = '00000000-0000-4000-8000-000000000010';
+
+/**
+ * Helper to determine if a driver record represents the Vehicle Admin / Owner
+ */
+export function isAdminDriver(driver?: Driver | null, driverId?: string | null): boolean {
+  if (driverId === DEFAULT_ADMIN_DRIVER_ID || driver?.id === DEFAULT_ADMIN_DRIVER_ID) {
+    return true;
+  }
+  if (!driver) return false;
+  const name = (driver.display_name || '').trim().toLowerCase();
+  return (
+    name === 'admin' ||
+    name === 'administrator' ||
+    name === 'pradeep' ||
+    name === 'owner' ||
+    name === 'owner (admin)'
+  );
+}
+
 /**
  * Generates an aggregated monthly report for a specific vehicle and month (YYYY-MM)
  */
@@ -132,15 +152,28 @@ export function generateMonthlyReport({
 
   const monthPayments = payments.filter((p) => p.allocated_month === month);
 
+  const isTripByAdmin = (t: Trip) => {
+    const drv = t.driver || drivers.find((d) => d.id === t.driver_id);
+    return isAdminDriver(drv, t.driver_id);
+  };
+
   // Totals for Completed Trips only (Accounting Rule: Incomplete & void trips excluded)
   const completedTrips = monthTrips.filter((t) => t.status === 'completed');
   const incompleteTrips = monthTrips.filter((t) => t.status === 'incomplete' || t.status === 'draft');
 
+  // Total distance includes both regular drivers and Admin runs
   const totalDistanceKm = completedTrips.reduce((acc, t) => acc + (t.distance_km || 0), 0);
-  const totalConfirmedContributionLKR = completedTrips.reduce(
-    (acc, t) => acc + (t.calculated_contribution || 0),
-    0
-  );
+  const adminDistanceKm = completedTrips
+    .filter((t) => isTripByAdmin(t))
+    .reduce((acc, t) => acc + (t.distance_km || 0), 0);
+  const driverDistanceKm = completedTrips
+    .filter((t) => !isTripByAdmin(t))
+    .reduce((acc, t) => acc + (t.distance_km || 0), 0);
+
+  // Confirmed contributions only apply to regular drivers (Admin runs are Rs. 0 contribution)
+  const totalConfirmedContributionLKR = completedTrips
+    .filter((t) => !isTripByAdmin(t))
+    .reduce((acc, t) => acc + (t.calculated_contribution || 0), 0);
 
   // Fuel Expenditure
   const totalFuelExpenditureLKR = monthFuel.reduce((acc, f) => acc + Number(f.amount_lkr || 0), 0);
@@ -166,8 +199,11 @@ export function generateMonthlyReport({
   // Net cash flow: collected payments minus actual expenditure paid out
   const netVehicleCashflowLKR = totalPaymentsCollectedLKR - totalActualExpenditureLKR;
 
-  // Per-driver breakdown
-  const driverSummaries: DriverMonthlySummary[] = drivers.map((driver) => {
+  // Exclude Admin from separate driver summaries
+  const regularDrivers = drivers.filter((driver) => !isAdminDriver(driver));
+
+  // Per-driver breakdown (only regular drivers)
+  const driverSummaries: DriverMonthlySummary[] = regularDrivers.map((driver) => {
     const driverTrips = monthTrips.filter((t) => t.driver_id === driver.id);
     const driverCompleted = driverTrips.filter((t) => t.status === 'completed');
     const driverIncomplete = driverTrips.filter(
@@ -213,6 +249,8 @@ export function generateMonthlyReport({
     vehicleName: vehicle.name,
     registrationNumber: vehicle.registration_identifier,
     totalDistanceKm: Math.round(totalDistanceKm * 100) / 100,
+    driverDistanceKm: Math.round(driverDistanceKm * 100) / 100,
+    adminDistanceKm: Math.round(adminDistanceKm * 100) / 100,
     totalConfirmedContributionLKR: Math.round(totalConfirmedContributionLKR * 100) / 100,
     totalFuelExpenditureLKR: Math.round(totalFuelExpenditureLKR * 100) / 100,
     totalFuelLitres: Math.round(totalFuelLitres * 100) / 100,
@@ -221,7 +259,7 @@ export function generateMonthlyReport({
     totalActualExpenditureLKR: Math.round(totalActualExpenditureLKR * 100) / 100,
     totalPaymentsCollectedLKR: Math.round(totalPaymentsCollectedLKR * 100) / 100,
     netVehicleCashflowLKR: Math.round(netVehicleCashflowLKR * 100) / 100,
-    totalDriversCount: drivers.length,
+    totalDriversCount: regularDrivers.length,
     incompleteTripsTotal: incompleteTrips.length,
     driverSummaries,
     settlement,

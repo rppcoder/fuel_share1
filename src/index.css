@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@variant dark (&:where(.dark, .dark *));
+
 /* Prevent Netlify floating badges/watermarks from covering bottom navigation */
 [data-netlify-badge],
 .netlify-badge,

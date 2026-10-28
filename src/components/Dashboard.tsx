@@ -21,7 +21,7 @@ import {
   FuelPurchase,
   Expense,
 } from '../types/database';
-import { formatLKR, formatKM } from '../lib/accounting';
+import { formatLKR, formatKM, isAdminDriver } from '../lib/accounting';
 
 interface DashboardProps {
   report: MonthSummaryReport;
@@ -250,14 +250,22 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Total Kilometres */}
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 text-xs font-medium">
-            <span>Recorded Distance</span>
+            <span>Total Run KM</span>
             <Gauge className="w-4 h-4 text-emerald-600" />
           </div>
           <div className="text-xl font-black text-slate-900 mt-2 font-mono">
             {formatKM(report.totalDistanceKm)}
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5">
-            Avg: {report.averageConsumptionKmPerLitre ? `${report.averageConsumptionKmPerLitre} km/L` : '—'}
+            {report.adminDistanceKm && report.adminDistanceKm > 0 ? (
+              <span>
+                Drivers: {formatKM(report.driverDistanceKm)} • Admin: {formatKM(report.adminDistanceKm)}
+              </span>
+            ) : (
+              <span>
+                Avg: {report.averageConsumptionKmPerLitre ? `${report.averageConsumptionKmPerLitre} km/L` : '—'}
+              </span>
+            )}
           </div>
         </div>
 
@@ -271,7 +279,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
             {formatLKR(report.totalConfirmedContributionLKR)}
           </div>
           <div className="text-[10px] text-emerald-600 font-semibold mt-0.5">
-            From completed trips
+            From completed driver trips
           </div>
         </div>
       </div>
@@ -372,42 +380,45 @@ export const Dashboard: React.FC<DashboardProps> = ({
         </div>
 
         <div className="space-y-2">
-          {recentTrips.slice(0, 3).map((trip) => (
-            <div
-              key={trip.id}
-              className="bg-white p-3 rounded-2xl border border-slate-200 text-xs flex items-center justify-between"
-            >
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold">
-                  KM
+          {recentTrips.slice(0, 3).map((trip) => {
+            const isAdminRun = isAdminDriver(trip.driver, trip.driver_id);
+            return (
+              <div
+                key={trip.id}
+                className="bg-white p-3 rounded-2xl border border-slate-200 text-xs flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center font-bold">
+                    KM
+                  </div>
+                  <div>
+                    <div className="font-bold text-slate-900">
+                      {isAdminRun ? 'Admin' : trip.driver?.display_name || 'Driver'} • {trip.trip_date}
+                    </div>
+                    <div className="text-[11px] text-slate-500 font-mono">
+                      {trip.start_odometer_km} → {trip.end_odometer_km ?? '???'} km ({formatKM(trip.distance_km)})
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <div className="font-bold text-slate-900">
-                    {trip.driver?.display_name || 'Driver'} • {trip.trip_date}
+                <div className="text-right">
+                  <div className="font-bold text-slate-900 font-mono">
+                    {isAdminRun ? 'Admin Run' : formatLKR(trip.calculated_contribution)}
                   </div>
-                  <div className="text-[11px] text-slate-500 font-mono">
-                    {trip.start_odometer_km} → {trip.end_odometer_km ?? '???'} km ({formatKM(trip.distance_km)})
-                  </div>
+                  <span
+                    className={`text-[9px] px-1.5 py-0.2 rounded font-semibold ${
+                      trip.status === 'completed'
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : trip.status === 'incomplete'
+                        ? 'bg-amber-100 text-amber-800'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {trip.status}
+                  </span>
                 </div>
               </div>
-              <div className="text-right">
-                <div className="font-bold text-slate-900 font-mono">
-                  {formatLKR(trip.calculated_contribution)}
-                </div>
-                <span
-                  className={`text-[9px] px-1.5 py-0.2 rounded font-semibold ${
-                    trip.status === 'completed'
-                      ? 'bg-emerald-100 text-emerald-800'
-                      : trip.status === 'incomplete'
-                      ? 'bg-amber-100 text-amber-800'
-                      : 'bg-slate-100 text-slate-600'
-                  }`}
-                >
-                  {trip.status}
-                </span>
-              </div>
-            </div>
-          ))}
+            );
+          })}
 
           {recentFuel.slice(0, 2).map((fuel) => (
             <div

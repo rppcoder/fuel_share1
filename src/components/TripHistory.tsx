@@ -13,7 +13,7 @@ import {
   Search,
 } from 'lucide-react';
 import { Trip, Driver, UserRole, Vehicle } from '../types/database';
-import { formatLKR, formatKM, calculateTrip } from '../lib/accounting';
+import { formatLKR, formatKM, calculateTrip, isAdminDriver } from '../lib/accounting';
 
 interface TripHistoryProps {
   trips: Trip[];
@@ -46,12 +46,15 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
   const [voidReason, setVoidReason] = useState<string>('');
 
   const filteredTrips = trips.filter((t) => {
-    if (driverFilter !== 'all' && t.driver_id !== driverFilter) return false;
+    if (isAdminDriver(t.driver, t.driver_id)) return false;
+    if (driverFilter !== 'all' && t.driver_id !== driverFilter) {
+      return false;
+    }
     if (statusFilter !== 'all' && t.status !== statusFilter) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       const matchNotes = t.notes?.toLowerCase().includes(q);
-      const matchDriver = t.driver?.display_name?.toLowerCase().includes(q);
+      const matchDriver = (t.driver?.display_name || '').toLowerCase().includes(q);
       const matchDate = t.trip_date?.includes(q);
       if (!matchNotes && !matchDriver && !matchDate) return false;
     }
@@ -130,6 +133,10 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
     }
   };
 
+  const totalRunKmShown = filteredTrips
+    .filter((t) => t.status === 'completed')
+    .reduce((sum, t) => sum + (t.distance_km || 0), 0);
+
   return (
     <div className="space-y-4 pb-24 max-w-md mx-auto">
       {/* Header & Filter Controls */}
@@ -138,7 +145,8 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
           <div>
             <h2 className="text-base font-extrabold text-slate-900">Trip History</h2>
             <p className="text-xs text-slate-500">
-              {filteredTrips.length} trip{filteredTrips.length !== 1 ? 's' : ''} listed
+              {filteredTrips.length} driver trip{filteredTrips.length !== 1 ? 's' : ''} • Driver Run:{' '}
+              <strong className="font-mono text-slate-800">{formatKM(totalRunKmShown)}</strong>
             </p>
           </div>
           <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-100 rounded-lg text-xs font-semibold text-slate-600">
@@ -207,6 +215,7 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
             const isCompleted = trip.status === 'completed';
             const isIncomplete = trip.status === 'incomplete' || trip.status === 'draft';
             const isVoid = trip.status === 'void';
+            const isAdminRun = isAdminDriver(trip.driver, trip.driver_id);
 
             return (
               <div
@@ -223,8 +232,13 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="font-bold text-sm text-slate-900">
-                      {trip.driver?.display_name || 'Driver'}
+                      {isAdminRun ? 'Admin' : trip.driver?.display_name || 'Driver'}
                     </span>
+                    {isAdminRun && (
+                      <span className="px-1.5 py-0.5 bg-slate-100 text-slate-700 text-[9px] font-bold rounded border border-slate-200 uppercase">
+                        Admin Run
+                      </span>
+                    )}
                     <span className="text-[11px] text-slate-400">• {trip.trip_date}</span>
                     {trip.is_local_draft && (
                       <span className="px-1.5 py-0.2 bg-amber-400 text-slate-950 text-[9px] font-bold rounded uppercase">
@@ -268,7 +282,7 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
                   <div>
                     <span className="text-[10px] uppercase font-bold text-slate-400 block">Contribution</span>
                     <span className="text-xs font-mono font-bold text-emerald-700 mt-0.5 block">
-                      {isCompleted ? formatLKR(trip.calculated_contribution) : 'Rs. 0.00'}
+                      {isAdminRun ? 'Rs. 0.00 (Admin)' : isCompleted ? formatLKR(trip.calculated_contribution) : 'Rs. 0.00'}
                     </span>
                   </div>
                 </div>
@@ -276,7 +290,9 @@ export const TripHistory: React.FC<TripHistoryProps> = ({
                 {/* Rate Snapshot & Notes */}
                 <div className="flex items-center justify-between text-[11px] text-slate-500">
                   <span className="font-mono">
-                    Rate Snapshot: Rs. {trip.rate_per_km_snapshot.toFixed(2)}/km
+                    {isAdminRun
+                      ? 'Added to Total Run KM (No driver fee)'
+                      : `Rate Snapshot: Rs. ${trip.rate_per_km_snapshot.toFixed(2)}/km`}
                   </span>
                   {trip.notes && (
                     <span className="italic truncate max-w-[200px]" title={trip.notes}>

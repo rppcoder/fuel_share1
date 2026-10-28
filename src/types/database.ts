@@ -173,6 +173,8 @@ export interface MonthSummaryReport {
   vehicleName: string;
   registrationNumber: string;
   totalDistanceKm: number;
+  driverDistanceKm?: number;
+  adminDistanceKm?: number;
   totalConfirmedContributionLKR: number;
   totalFuelExpenditureLKR: number;
   totalFuelLitres: number;
