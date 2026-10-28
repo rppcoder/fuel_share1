@@ -1,12 +1,15 @@
 import {createRoot} from 'react-dom/client';
 import App from './App.tsx';
-import './index.css';
-import { registerSW } from 'virtual:pwa-register';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import './index.css';
 
-// Register PWA service worker with auto-update in production builds
+// Register PWA service worker only in production builds
 if ('serviceWorker' in navigator && import.meta.env.PROD) {
-  registerSW({ immediate: true });
+  import('virtual:pwa-register').then(({ registerSW }) => {
+    registerSW({ immediate: true });
+  }).catch(() => {
+    // Ignore SW registration errors in non-supported environments
+  });
 }
 
 createRoot(document.getElementById('root')!).render(
