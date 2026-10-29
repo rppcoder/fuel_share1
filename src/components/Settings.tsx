@@ -31,9 +31,10 @@ import {
   ContributionRate,
   UserRole,
   Trip,
+  TripStatus,
   MonthSummaryReport,
 } from '../types/database';
-import { formatKM, calculateTrip } from '../lib/accounting';
+import { formatKM, formatLKR, calculateTrip } from '../lib/accounting';
 import { getFromStorage, saveToStorage } from '../lib/persistence';
 
 interface SettingsProps {
@@ -50,11 +51,13 @@ interface SettingsProps {
   onUpdateDriver: (driverId: string, updates: Partial<Driver>) => Promise<boolean>;
   onDeleteDriver: (driverId: string) => Promise<boolean>;
   onSetNewRate: (ratePerKm: number, effectiveFrom: string) => Promise<boolean>;
+  driverTrips?: Trip[];
   adminTrips?: Trip[];
   monthlyReport?: MonthSummaryReport;
   onSaveAdminTrip?: (tripData: Partial<Trip>) => Promise<boolean>;
   onUpdateTrip?: (tripId: string, updates: Partial<Trip>, auditReason: string) => Promise<boolean>;
   onVoidTrip?: (tripId: string, reason: string) => Promise<boolean>;
+  onDeleteTrip?: (tripId: string, reason?: string) => Promise<boolean>;
   onOpenSupabaseConfig: () => void;
   onOpenQASuite: () => void;
 }
@@ -72,11 +75,13 @@ export const Settings: React.FC<SettingsProps> = ({
   onUpdateDriver,
   onDeleteDriver,
   onSetNewRate,
+  driverTrips = [],
   adminTrips = [],
   monthlyReport,
   onSaveAdminTrip,
   onUpdateTrip,
   onVoidTrip,
+  onDeleteTrip,
 }) => {
   // 6-Digit Admin Passcode Gate state
   const [storedPasscode, setStoredPasscode] = useState<string>(() => {
@@ -133,6 +138,24 @@ export const Settings: React.FC<SettingsProps> = ({
   const [isUpdatingAdminTrip, setIsUpdatingAdminTrip] = useState<boolean>(false);
   const [selectedAdminTripForVoid, setSelectedAdminTripForVoid] = useState<Trip | null>(null);
   const [adminVoidReason, setAdminVoidReason] = useState<string>('');
+
+  // Drivers' Trips management state inside Admin Panel (Edit / Change / Void / Delete)
+  const [driverTripFilterDriverId, setDriverTripFilterDriverId] = useState<string>('all');
+  const [driverTripFilterStatus, setDriverTripFilterStatus] = useState<string>('all');
+  const [driverTripSearchQuery, setDriverTripSearchQuery] = useState<string>('');
+  const [selectedDriverTripForEdit, setSelectedDriverTripForEdit] = useState<Trip | null>(null);
+  const [editDriverTripDriverId, setEditDriverTripDriverId] = useState<string>('');
+  const [editDriverTripDate, setEditDriverTripDate] = useState<string>('');
+  const [editDriverTripStartKm, setEditDriverTripStartKm] = useState<string>('');
+  const [editDriverTripEndKm, setEditDriverTripEndKm] = useState<string>('');
+  const [editDriverTripRate, setEditDriverTripRate] = useState<string>('');
+  const [editDriverTripStatus, setEditDriverTripStatus] = useState<TripStatus>('completed');
+  const [editDriverTripNotes, setEditDriverTripNotes] = useState<string>('');
+  const [editDriverTripReason, setEditDriverTripReason] = useState<string>('');
+  const [driverTripActionError, setDriverTripActionError] = useState<string | null>(null);
+  const [selectedTripForDelete, setSelectedTripForDelete] = useState<Trip | null>(null);
+  const [deleteTripReason, setDeleteTripReason] = useState<string>('');
+  const [deleteTripError, setDeleteTripError] = useState<string | null>(null);
 
   // Rate edit state
   const [newRate, setNewRate] = useState<string>(
@@ -264,6 +287,141 @@ export const Settings: React.FC<SettingsProps> = ({
       setIsUpdatingAdminTrip(false);
     }
   };
+
+  // Filtered Drivers' Trips for Admin Panel management
+  const filteredDriverTrips = driverTrips.filter((t) => {
+    if (driverTripFilterDriverId !== 'all' && t.driver_id !== driverTripFilterDriverId) {
+      return false;
+    }
+    if (driverTripFilterStatus !== 'all' && t.status !== driverTripFilterStatus) {
+      return false;
+    }
+    if (driverTripSearchQuery) {
+      const q = driverTripSearchQuery.toLowerCase();
+      const matchDriver = (t.driver?.display_name || '').toLowerCase().includes(q);
+      const matchNotes = (t.notes || '').toLowerCase().includes(q);
+      const matchDate = (t.trip_date || '').includes(q);
+      if (!matchDriver && !matchNotes && !matchDate) return false;
+    }
+    return true;
+  });
+
+  const handleOpenEditDriverTrip = (trip: Trip) => {
+    setSelectedDriverTripForEdit(trip);
+    setEditDriverTripDriverId(trip.driver_id);
+    setEditDriverTripDate(trip.trip_date);
+    setEditDriverTripStartKm(String(trip.start_odometer_km));
+    setEditDriverTripEndKm(
+      trip.end_odometer_km !== null && trip.end_odometer_km !== undefined
+        ? String(trip.end_odometer_km)
+        : ''
+    );
+    setEditDriverTripRate(String(trip.rate_per_km_snapshot));
+    setEditDriverTripStatus(
+      trip.status === 'incomplete' || trip.status === 'draft' ? 'completed' : trip.status
+    );
+    setEditDriverTripNotes(trip.notes || '');
+    setEditDriverTripReason('');
+    setDriverTripActionError(null);
+  };
+
+  const handleSaveEditDriverTrip = async () => {
+    if (!selectedDriverTripForEdit || !onUpdateTrip) return;
+    setDriverTripActionError(null);
+
+    const start = parseFloat(editDriverTripStartKm);
+    if (isNaN(start) || start < 0) {
+      setDriverTripActionError('Starting odometer must be a valid non-negative number.');
+      return;
+    }
+
+    const hasEnd = editDriverTripEndKm.trim() !== '';
+    const end = hasEnd ? parseFloat(editDriverTripEndKm) : null;
+
+    if (editDriverTripStatus === 'completed') {
+      if (end === null || isNaN(end) || end < start) {
+        setDriverTripActionError(`Ending odometer must be at least ${start} km.`);
+        return;
+      }
+    } else if (end !== null && (isNaN(end) || end < start)) {
+      setDriverTripActionError(`Ending odometer must be at least ${start} km.`);
+      return;
+    }
+
+    const rate = parseFloat(editDriverTripRate);
+    if (isNaN(rate) || rate < 0) {
+      setDriverTripActionError('Rate per KM must be a valid non-negative number.');
+      return;
+    }
+
+    setIsUpdatingAdminTrip(true);
+    try {
+      const calc = calculateTrip(
+        start,
+        editDriverTripStatus === 'void' ? null : end,
+        rate
+      );
+
+      const success = await onUpdateTrip(
+        selectedDriverTripForEdit.id,
+        {
+          driver_id: editDriverTripDriverId || selectedDriverTripForEdit.driver_id,
+          trip_date: editDriverTripDate || selectedDriverTripForEdit.trip_date,
+          start_odometer_km: start,
+          end_odometer_km: end,
+          distance_km: editDriverTripStatus === 'completed' ? calc.distanceKm : 0,
+          rate_per_km_snapshot: rate,
+          calculated_contribution:
+            editDriverTripStatus === 'completed' ? calc.calculatedContribution : 0,
+          status: editDriverTripStatus,
+          notes: editDriverTripNotes.trim() || null,
+        },
+        editDriverTripReason.trim() || 'Admin edited driver trip'
+      );
+
+      if (success) {
+        setSelectedDriverTripForEdit(null);
+      } else {
+        setDriverTripActionError('Failed to save changes to driver trip.');
+      }
+    } catch (err: unknown) {
+      setDriverTripActionError(err instanceof Error ? err.message : 'Error updating driver trip.');
+    } finally {
+      setIsUpdatingAdminTrip(false);
+    }
+  };
+
+  const handleConfirmDeleteTrip = async () => {
+    if (!selectedTripForDelete || !onDeleteTrip) return;
+    setDeleteTripError(null);
+
+    setIsUpdatingAdminTrip(true);
+    try {
+      const success = await onDeleteTrip(
+        selectedTripForDelete.id,
+        deleteTripReason.trim() || 'Deleted by administrator'
+      );
+      if (success) {
+        setSelectedTripForDelete(null);
+      } else {
+        setDeleteTripError('Failed to delete trip.');
+      }
+    } catch (err: unknown) {
+      setDeleteTripError(err instanceof Error ? err.message : 'Error deleting trip.');
+    } finally {
+      setIsUpdatingAdminTrip(false);
+    }
+  };
+
+  const previewDriverTripStart = parseFloat(editDriverTripStartKm) || 0;
+  const previewDriverTripEnd =
+    editDriverTripEndKm.trim() !== '' ? parseFloat(editDriverTripEndKm) : null;
+  const previewDriverTripRate = parseFloat(editDriverTripRate) || 0;
+  const previewDriverTripCalc = calculateTrip(
+    previewDriverTripStart,
+    editDriverTripStatus === 'completed' ? previewDriverTripEnd : null,
+    previewDriverTripRate
+  );
 
   const handleRecordAdminTrip = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -622,30 +780,28 @@ export const Settings: React.FC<SettingsProps> = ({
           </span>
         </div>
 
-        {/* Monthly Total Run KM Breakdown */}
+        {/* Monthly Total Run KM Breakdown (Drivers + Admin) */}
         {monthlyReport && (
-          <div className="grid grid-cols-3 gap-2 text-center bg-slate-50 dark:bg-slate-900/60 p-2.5 rounded-xl border border-slate-200/80 dark:border-slate-700">
-            <div>
-              <span className="text-[10px] uppercase font-bold text-slate-400 block">Drivers KM</span>
-              <span className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 mt-0.5 block">
-                {formatKM(monthlyReport.driverDistanceKm ?? 0)}
-              </span>
-            </div>
-            <div className="border-x border-slate-200 dark:border-slate-700 px-1">
-              <span className="text-[10px] uppercase font-bold text-emerald-700 dark:text-emerald-400 block">
-                Admin KM
-              </span>
-              <span className="text-xs font-mono font-extrabold text-emerald-700 dark:text-emerald-400 mt-0.5 block">
-                {formatKM(monthlyReport.adminDistanceKm ?? 0)}
-              </span>
-            </div>
-            <div>
-              <span className="text-[10px] uppercase font-bold text-slate-900 dark:text-slate-100 block">
-                Total Run KM
-              </span>
-              <span className="text-xs font-mono font-black text-slate-900 dark:text-white mt-0.5 block">
+          <div className="bg-emerald-50/70 dark:bg-emerald-950/40 p-3 rounded-xl border border-emerald-200 dark:border-emerald-800 space-y-2">
+            <div className="flex items-center justify-between text-xs font-extrabold text-emerald-950 dark:text-emerald-200">
+              <span>Vehicle Total Run (Drivers + Admin)</span>
+              <span className="font-mono text-sm font-black text-emerald-700 dark:text-emerald-300">
                 {formatKM(monthlyReport.totalDistanceKm)}
               </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-center text-[11px] pt-1 border-t border-emerald-200/60 dark:border-emerald-800/60">
+              <div className="bg-white/80 dark:bg-slate-900/80 p-1.5 rounded-lg border border-slate-200/60 dark:border-slate-700">
+                <span className="text-[10px] uppercase font-bold text-slate-500 block">Drivers' Run</span>
+                <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
+                  {formatKM(monthlyReport.driverDistanceKm ?? 0)}
+                </span>
+              </div>
+              <div className="bg-white/80 dark:bg-slate-900/80 p-1.5 rounded-lg border border-emerald-300/60 dark:border-emerald-700">
+                <span className="text-[10px] uppercase font-bold text-emerald-700 dark:text-emerald-400 block">Admin Run</span>
+                <span className="font-mono font-bold text-emerald-700 dark:text-emerald-300">
+                  {formatKM(monthlyReport.adminDistanceKm ?? 0)}
+                </span>
+              </div>
             </div>
           </div>
         )}
@@ -894,9 +1050,9 @@ export const Settings: React.FC<SettingsProps> = ({
                       {trip.notes ? `"${trip.notes}"` : 'Added to Total Run KM (No driver fee)'}
                     </span>
 
-                    {!isVoid && isAdmin && (onUpdateTrip || onVoidTrip) && (
+                    {isAdmin && (onUpdateTrip || onVoidTrip || onDeleteTrip) && (
                       <div className="flex items-center gap-1">
-                        {onUpdateTrip && (
+                        {!isVoid && onUpdateTrip && (
                           <button
                             type="button"
                             onClick={() => handleOpenEditAdminTrip(trip)}
@@ -906,17 +1062,31 @@ export const Settings: React.FC<SettingsProps> = ({
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
                         )}
-                        {onVoidTrip && (
+                        {!isVoid && onVoidTrip && (
                           <button
                             type="button"
                             onClick={() => {
                               setSelectedAdminTripForVoid(trip);
                               setAdminVoidReason('');
                             }}
-                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition"
+                            className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-lg transition"
                             title="Void Admin Run"
                           >
                             <Ban className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {onDeleteTrip && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedTripForDelete(trip);
+                              setDeleteTripReason('');
+                              setDeleteTripError(null);
+                            }}
+                            className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-lg transition"
+                            title="Delete Admin Run"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         )}
                       </div>
@@ -928,6 +1098,442 @@ export const Settings: React.FC<SettingsProps> = ({
           </div>
         )}
       </div>
+
+      {/* MANAGE DRIVERS' TRIPS (EDIT / CHANGE / DELETE) */}
+      <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs space-y-3">
+        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-2.5">
+          <div>
+            <h3 className="text-xs font-extrabold text-slate-900 dark:text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
+              <Users className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
+              <span>Drivers&apos; Trips (Edit / Change / Delete)</span>
+            </h3>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+              {filteredDriverTrips.length} driver trip{filteredDriverTrips.length !== 1 ? 's' : ''} • Edit odometer, reassign driver, change rate, or delete
+            </p>
+          </div>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 uppercase">
+            Full Control
+          </span>
+        </div>
+
+        {/* Search & Filters for Drivers' Trips */}
+        <div className="space-y-2 text-xs">
+          <div className="relative">
+            <input
+              type="text"
+              placeholder="Search driver trip by name, date, or note..."
+              value={driverTripSearchQuery}
+              onChange={(e) => setDriverTripSearchQuery(e.target.value)}
+              className="w-full pl-8 pr-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 text-xs focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+            />
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-2" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            <select
+              value={driverTripFilterDriverId}
+              onChange={(e) => setDriverTripFilterDriverId(e.target.value)}
+              className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-medium text-slate-800 dark:text-slate-200"
+            >
+              <option value="all">All Drivers</option>
+              {drivers.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.display_name}
+                </option>
+              ))}
+            </select>
+
+            <select
+              value={driverTripFilterStatus}
+              onChange={(e) => setDriverTripFilterStatus(e.target.value)}
+              className="w-full px-2.5 py-1.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs font-medium text-slate-800 dark:text-slate-200"
+            >
+              <option value="all">All Statuses</option>
+              <option value="completed">Completed</option>
+              <option value="incomplete">Incomplete</option>
+              <option value="void">Voided</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Drivers' Trips List */}
+        {filteredDriverTrips.length === 0 ? (
+          <div className="p-6 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-100 dark:border-slate-700 text-center text-slate-400 text-xs space-y-1.5">
+            <FileText className="w-6 h-6 mx-auto text-slate-300 dark:text-slate-600" />
+            <p>No driver trips found matching filters.</p>
+          </div>
+        ) : (
+          <div className="space-y-2 max-h-96 overflow-y-auto pr-0.5">
+            {filteredDriverTrips.map((trip) => {
+              const isCompleted = trip.status === 'completed';
+              const isIncomplete = trip.status === 'incomplete' || trip.status === 'draft';
+              const isVoid = trip.status === 'void';
+
+              return (
+                <div
+                  key={trip.id}
+                  className={`p-3 rounded-xl border transition space-y-2 ${
+                    isIncomplete
+                      ? 'border-amber-300 bg-amber-50/30 dark:border-amber-700/60 dark:bg-amber-950/20'
+                      : isVoid
+                      ? 'border-slate-200 dark:border-slate-700 opacity-60 bg-slate-50 dark:bg-slate-900/30'
+                      : 'border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-900/60'
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-bold text-xs text-slate-900 dark:text-slate-100">
+                        {trip.driver?.display_name || 'Driver'}
+                      </span>
+                      <span className="text-[11px] text-slate-400">• {trip.trip_date}</span>
+                    </div>
+
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                        isCompleted
+                          ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/50 dark:text-emerald-300'
+                          : isIncomplete
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-300'
+                          : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-400 line-through'
+                      }`}
+                    >
+                      {isCompleted && <CheckCircle2 className="w-3 h-3 text-emerald-600" />}
+                      {isIncomplete && <Clock className="w-3 h-3 text-amber-600" />}
+                      {isVoid && <XCircle className="w-3 h-3 text-slate-500" />}
+                      <span className="capitalize">{trip.status}</span>
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2 p-2 bg-white dark:bg-slate-800 rounded-lg border border-slate-100 dark:border-slate-700 text-center">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                        Odometer
+                      </span>
+                      <span className="text-xs font-mono font-bold text-slate-800 dark:text-slate-200 mt-0.5 block">
+                        {trip.start_odometer_km} → {trip.end_odometer_km ?? '???'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                        Distance
+                      </span>
+                      <span className="text-xs font-mono font-bold text-slate-900 dark:text-slate-100 mt-0.5 block">
+                        {isCompleted ? formatKM(trip.distance_km) : 'Pending'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 block">
+                        Contribution
+                      </span>
+                      <span className="text-xs font-mono font-extrabold text-emerald-700 dark:text-emerald-400 mt-0.5 block">
+                        {isCompleted ? formatLKR(trip.calculated_contribution) : 'Rs. 0.00'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 pt-0.5">
+                    <span className="truncate max-w-[165px]">
+                      {trip.notes
+                        ? `"${trip.notes}"`
+                        : `Rate: Rs. ${trip.rate_per_km_snapshot.toFixed(2)}/km`}
+                    </span>
+
+                    {isAdmin && (
+                      <div className="flex items-center gap-1.5">
+                        {onUpdateTrip && (
+                          <button
+                            type="button"
+                            onClick={() => handleOpenEditDriverTrip(trip)}
+                            className="flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-800 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 hover:text-emerald-700 dark:hover:text-emerald-300 border border-slate-200 dark:border-slate-600 rounded-lg transition"
+                            title="Edit or Change Driver Trip"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                            <span>Edit / Change</span>
+                          </button>
+                        )}
+                        {!isVoid && onVoidTrip && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedAdminTripForVoid(trip);
+                              setAdminVoidReason('');
+                            }}
+                            className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950/40 rounded-lg transition"
+                            title="Void Driver Trip"
+                          >
+                            <Ban className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {onDeleteTrip && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedTripForDelete(trip);
+                              setDeleteTripReason('');
+                              setDeleteTripError(null);
+                            }}
+                            className="flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-rose-600 dark:text-rose-400 bg-white dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 rounded-lg transition"
+                            title="Delete Driver Trip"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            <span>Delete</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Edit / Change Driver Trip Modal */}
+      {selectedDriverTripForEdit && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-3xl p-5 shadow-2xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 space-y-4 my-auto">
+            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-2">
+              <h3 className="font-bold text-sm">Edit / Change Driver Trip</h3>
+              <span className="text-xs text-slate-500">{selectedDriverTripForEdit.trip_date}</span>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Driver
+                  </label>
+                  <select
+                    value={editDriverTripDriverId}
+                    onChange={(e) => setEditDriverTripDriverId(e.target.value)}
+                    className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-semibold text-xs focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                  >
+                    {drivers.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.display_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Trip Date
+                  </label>
+                  <input
+                    type="date"
+                    value={editDriverTripDate}
+                    onChange={(e) => setEditDriverTripDate(e.target.value)}
+                    className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-medium text-xs focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Start Odometer (KM)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={editDriverTripStartKm}
+                    onChange={(e) => setEditDriverTripStartKm(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-mono text-xs font-bold focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Finish Odometer (KM)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    placeholder={`Min ${editDriverTripStartKm || 0}`}
+                    value={editDriverTripEndKm}
+                    onChange={(e) => setEditDriverTripEndKm(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-mono text-xs font-bold focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Rate per KM (LKR)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={editDriverTripRate}
+                    onChange={(e) => setEditDriverTripRate(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-mono text-xs font-bold focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                    Status
+                  </label>
+                  <select
+                    value={editDriverTripStatus}
+                    onChange={(e) => setEditDriverTripStatus(e.target.value as TripStatus)}
+                    className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 font-semibold text-xs focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                  >
+                    <option value="completed">Completed</option>
+                    <option value="incomplete">Incomplete</option>
+                    <option value="void">Voided</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+                  Route / Trip Notes
+                </label>
+                <input
+                  type="text"
+                  placeholder="Optional route note..."
+                  value={editDriverTripNotes}
+                  onChange={(e) => setEditDriverTripNotes(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                />
+              </div>
+
+              {/* Live Recalculation Preview */}
+              <div className="grid grid-cols-2 gap-2 p-2.5 bg-emerald-50/70 dark:bg-emerald-950/30 rounded-xl border border-emerald-200/70 dark:border-emerald-800/60 text-center">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">
+                    Recalculated Distance
+                  </span>
+                  <span className="text-xs font-mono font-extrabold text-slate-900 dark:text-slate-100">
+                    {formatKM(previewDriverTripCalc.distanceKm)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 dark:text-slate-400 block">
+                    Recalculated Fee
+                  </span>
+                  <span className="text-xs font-mono font-extrabold text-emerald-700 dark:text-emerald-400">
+                    {formatLKR(previewDriverTripCalc.calculatedContribution)}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1 flex items-center gap-1">
+                  <Shield className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Audit Reason (Optional)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Corrected driver or odometer reading"
+                  value={editDriverTripReason}
+                  onChange={(e) => setEditDriverTripReason(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs focus:ring-2 focus:ring-emerald-600 focus:outline-none"
+                />
+              </div>
+
+              {driverTripActionError && (
+                <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-[11px] flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                  <span>{driverTripActionError}</span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setSelectedDriverTripForEdit(null)}
+                className="px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveEditDriverTrip}
+                disabled={isUpdatingAdminTrip}
+                className="px-4 py-2 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow transition disabled:opacity-50"
+              >
+                {isUpdatingAdminTrip ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Trip Confirmation Modal */}
+      {selectedTripForDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-3xl p-5 shadow-2xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 space-y-4">
+            <div className="flex items-center gap-2 text-rose-600">
+              <Trash2 className="w-5 h-5" />
+              <h3 className="font-bold text-sm">Delete Trip Record</h3>
+            </div>
+
+            <div className="p-3 bg-rose-50/70 dark:bg-rose-950/30 rounded-xl border border-rose-200/70 dark:border-rose-800/60 text-xs space-y-1 text-slate-700 dark:text-slate-200">
+              <div>
+                Driver: <strong>{selectedTripForDelete.driver?.display_name || 'Admin'}</strong>
+              </div>
+              <div>
+                Date: <strong>{selectedTripForDelete.trip_date}</strong>
+              </div>
+              <div>
+                Odometer:{' '}
+                <strong>
+                  {selectedTripForDelete.start_odometer_km} →{' '}
+                  {selectedTripForDelete.end_odometer_km ?? '???'} km
+                </strong>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+              This will permanently delete this trip and recalculate monthly mileage and driver contributions.
+            </p>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1">
+                Reason for Deletion (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Duplicate or mistaken trip entry"
+                value={deleteTripReason}
+                onChange={(e) => setDeleteTripReason(e.target.value)}
+                className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs focus:ring-2 focus:ring-rose-500 focus:outline-none"
+              />
+            </div>
+
+            {deleteTripError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-800 rounded-xl text-[11px] flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                <span>{deleteTripError}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100 dark:border-slate-700">
+              <button
+                type="button"
+                onClick={() => setSelectedTripForDelete(null)}
+                className="px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 text-xs font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmDeleteTrip}
+                disabled={isUpdatingAdminTrip}
+                className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow transition disabled:opacity-50"
+              >
+                {isUpdatingAdminTrip ? 'Deleting...' : 'Delete Trip'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Edit Admin Run Modal */}
       {selectedAdminTripForEdit && (
@@ -1012,11 +1618,11 @@ export const Settings: React.FC<SettingsProps> = ({
           <div className="w-full max-w-sm bg-white dark:bg-slate-800 rounded-3xl p-5 shadow-2xl border border-slate-200 dark:border-slate-700 text-slate-900 dark:text-slate-100 space-y-4">
             <div className="flex items-center gap-2 text-rose-600">
               <Ban className="w-5 h-5" />
-              <h3 className="font-bold text-sm">Void Admin Run</h3>
+              <h3 className="font-bold text-sm">Void Trip Record</h3>
             </div>
 
             <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
-              Voiding marks this admin run as invalid and removes its distance from Total Run KM.
+              Voiding marks this trip as invalid and removes its distance from monthly totals.
             </p>
 
             <div>
@@ -1025,7 +1631,7 @@ export const Settings: React.FC<SettingsProps> = ({
               </label>
               <input
                 type="text"
-                placeholder="e.g. Duplicate admin run entry"
+                placeholder="e.g. Duplicate trip entry"
                 value={adminVoidReason}
                 onChange={(e) => setAdminVoidReason(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-xs focus:ring-2 focus:ring-rose-500 focus:outline-none"

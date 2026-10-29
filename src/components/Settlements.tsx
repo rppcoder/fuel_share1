@@ -217,17 +217,10 @@ export const Settlements: React.FC<SettlementsProps> = ({
         </h3>
 
         <div className="space-y-2 text-xs">
-          <div className="flex items-center justify-between py-1 border-b border-slate-50">
-            <span className="text-slate-600 font-semibold">Total Run KM (Drivers + Admin):</span>
-            <span className="font-mono font-bold text-slate-900">{formatKM(report.totalDistanceKm)}</span>
+          <div className="flex items-center justify-between py-2 px-2 bg-slate-50 rounded-lg border-l-4 border-emerald-500">
+            <span className="text-slate-900 font-bold">Drivers' Total Run KM:</span>
+            <span className="font-mono font-black text-slate-900 text-sm">{formatKM(report.driverDistanceKm)}</span>
           </div>
-
-          {report.adminDistanceKm !== undefined && report.adminDistanceKm > 0 && (
-            <div className="flex items-center justify-between py-1 border-b border-slate-50 text-[11px] text-slate-500 pl-2">
-              <span>↳ Drivers: {formatKM(report.driverDistanceKm)} • Admin: {formatKM(report.adminDistanceKm)}</span>
-              <span className="font-mono text-emerald-700 font-semibold">Included in Total KM</span>
-            </div>
-          )}
 
           <div className="flex items-center justify-between py-1 border-b border-slate-50">
             <span className="text-slate-600">Total Driver Contributions (Confirmed):</span>

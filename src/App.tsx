@@ -448,7 +448,7 @@ export default function App() {
       const drv = drivers.find((d) => d.id === t.driver_id);
       return {
         ...t,
-        driver: t.driver || drv,
+        driver: drv || t.driver,
       };
     });
   }, [trips, drivers]);
@@ -665,7 +665,17 @@ export default function App() {
     const oldTrip = trips.find((t) => t.id === tripId);
 
     setTrips((prev) => {
-      const updated = prev.map((t) => (t.id === tripId ? { ...t, ...updates, updated_at: new Date().toISOString() } : t));
+      const updated = prev.map((t) => {
+        if (t.id !== tripId) return t;
+        const nextDriverId = updates.driver_id ?? t.driver_id;
+        const matchedDriver = drivers.find((d) => d.id === nextDriverId) || t.driver;
+        return {
+          ...t,
+          ...updates,
+          driver: matchedDriver,
+          updated_at: new Date().toISOString(),
+        };
+      });
       saveToStorage('trips', updated);
       return updated;
     });
@@ -680,7 +690,8 @@ export default function App() {
     }
 
     if (client) {
-      await client.from('trips').update(updates).eq('id', tripId);
+      const { driver: _driver, is_local_draft: _draft, ...dbUpdates } = updates;
+      await client.from('trips').update(dbUpdates).eq('id', tripId);
       await client.from('audit_logs').insert({
         id: generateUuid(),
         household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
@@ -688,7 +699,7 @@ export default function App() {
         entity_id: tripId,
         action: 'update_trip',
         previous_values: oldTrip ? (oldTrip as unknown as Record<string, unknown>) : null,
-        new_values: { ...updates, reason: auditReason },
+        new_values: { ...dbUpdates, reason: auditReason },
       });
     }
 
@@ -715,6 +726,33 @@ export default function App() {
         action: 'void_trip',
         previous_values: oldTrip ? (oldTrip as unknown as Record<string, unknown>) : null,
         new_values: { status: 'void', reason },
+      });
+    }
+
+    return true;
+  };
+
+  const handleDeleteTrip = async (tripId: string, reason?: string): Promise<boolean> => {
+    const client = getSupabaseClient();
+    const oldTrip = trips.find((t) => t.id === tripId);
+
+    setTrips((prev) => {
+      const updated = prev.filter((t) => t.id !== tripId);
+      saveToStorage('trips', updated);
+      return updated;
+    });
+    removeOfflineDraft(tripId);
+
+    if (client) {
+      await client.from('trips').delete().eq('id', tripId);
+      await client.from('audit_logs').insert({
+        id: generateUuid(),
+        household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
+        entity_type: 'trip',
+        entity_id: tripId,
+        action: 'delete_trip',
+        previous_values: oldTrip ? (oldTrip as unknown as Record<string, unknown>) : null,
+        new_values: { deleted: true, reason: reason || 'Deleted by administrator' },
       });
     }
 
@@ -1124,6 +1162,7 @@ export default function App() {
             vehicle={vehicle}
             onUpdateTrip={handleUpdateTrip}
             onVoidTrip={handleVoidTrip}
+            onDeleteTrip={handleDeleteTrip}
           />
         )}
 
@@ -1187,11 +1226,13 @@ export default function App() {
             onUpdateDriver={handleUpdateDriver}
             onDeleteDriver={handleDeleteDriver}
             onSetNewRate={handleSetNewRate}
+            driverTrips={driverTrips}
             adminTrips={adminTrips}
             monthlyReport={monthlyReport}
             onSaveAdminTrip={handleSaveAdminTrip}
             onUpdateTrip={handleUpdateTrip}
             onVoidTrip={handleVoidTrip}
+            onDeleteTrip={handleDeleteTrip}
             onOpenSupabaseConfig={() => setShowConfigModal(true)}
             onOpenQASuite={() => setShowQASuiteModal(true)}
           />

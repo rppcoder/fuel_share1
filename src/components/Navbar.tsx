@@ -4,7 +4,6 @@ import {
   Database,
   Shield,
   User,
-  FlaskConical,
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
 import { Vehicle, UserRole } from '../types/database';

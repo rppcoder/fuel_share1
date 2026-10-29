@@ -11,7 +11,6 @@ import {
   Settings,
   Shield,
   X,
-  FlaskConical,
 } from 'lucide-react';
 
 interface BottomNavProps {
@@ -38,7 +37,6 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     { id: 'payments', label: 'Payments', icon: CreditCard, desc: 'Record driver payments & deposits' },
     { id: 'settlements', label: 'Monthly Settlements', icon: CalendarCheck, desc: 'Confirm & audit monthly statements' },
     { id: 'reports', label: 'Reports & Exports', icon: FileBarChart, desc: 'CSV, printable bills & JSON backup' },
-    { id: 'qa_suite', label: 'QA Test Runner', icon: FlaskConical, desc: 'Verify 17 security & accounting tests' },
   ];
 
   return (

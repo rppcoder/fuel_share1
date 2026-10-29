@@ -250,22 +250,14 @@ export const Dashboard: React.FC<DashboardProps> = ({
         {/* Total Kilometres */}
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
           <div className="flex items-center justify-between text-slate-500 text-xs font-medium">
-            <span>Total Run KM</span>
+            <span>Drivers' Run KM</span>
             <Gauge className="w-4 h-4 text-emerald-600" />
           </div>
           <div className="text-xl font-black text-slate-900 mt-2 font-mono">
-            {formatKM(report.totalDistanceKm)}
+            {formatKM(report.driverDistanceKm)}
           </div>
           <div className="text-[10px] text-slate-400 mt-0.5">
-            {report.adminDistanceKm && report.adminDistanceKm > 0 ? (
-              <span>
-                Drivers: {formatKM(report.driverDistanceKm)} • Admin: {formatKM(report.adminDistanceKm)}
-              </span>
-            ) : (
-              <span>
-                Avg: {report.averageConsumptionKmPerLitre ? `${report.averageConsumptionKmPerLitre} km/L` : '—'}
-              </span>
-            )}
+            <span>Drivers' total completed distance</span>
           </div>
         </div>
 
