@@ -9,6 +9,8 @@ import {
   CheckCircle2,
   Lock,
   AlertTriangle,
+  KeyRound,
+  Delete,
   Trash2,
   Edit2,
   Save,
@@ -32,6 +34,7 @@ import {
   MonthSummaryReport,
 } from '../types/database';
 import { formatKM, calculateTrip } from '../lib/accounting';
+import { getFromStorage, saveToStorage } from '../lib/persistence';
 
 interface SettingsProps {
   vehicle: Vehicle | null;
@@ -75,6 +78,28 @@ export const Settings: React.FC<SettingsProps> = ({
   onUpdateTrip,
   onVoidTrip,
 }) => {
+  // 6-Digit Admin Passcode Gate state
+  const [storedPasscode, setStoredPasscode] = useState<string>(() => {
+    const saved = getFromStorage<string>('adminPasscode', '583027');
+    if (!saved || saved === '123456') {
+      saveToStorage('adminPasscode', '583027');
+      return '583027';
+    }
+    return saved;
+  });
+  const [isPasscodeUnlocked, setIsPasscodeUnlocked] = useState<boolean>(false);
+  const [passcodeEntry, setPasscodeEntry] = useState<string>('');
+  const [passcodeError, setPasscodeError] = useState<string | null>(null);
+
+  // Change 6-Digit Passcode state
+  const [currentPinInput, setCurrentPinInput] = useState<string>('');
+  const [newPinInput, setNewPinInput] = useState<string>('');
+  const [confirmPinInput, setConfirmPinInput] = useState<string>('');
+  const [pinChangeMessage, setPinChangeMessage] = useState<{
+    type: 'success' | 'error';
+    text: string;
+  } | null>(null);
+
   // Vehicle edit state
   const [vehicleName, setVehicleName] = useState(vehicle?.name || 'Three-Wheeler');
   const [regId, setRegId] = useState(vehicle?.registration_identifier || 'WP AB-1234');
@@ -375,6 +400,162 @@ export const Settings: React.FC<SettingsProps> = ({
     setEditingDriverId(null);
   };
 
+  const verifyPasscodeValue = (candidate: string) => {
+    if (candidate === storedPasscode) {
+      setIsPasscodeUnlocked(true);
+      setPasscodeEntry('');
+      setPasscodeError(null);
+      if (role !== 'admin') {
+        onUpdateRole('admin');
+      }
+    } else {
+      setPasscodeError('Invalid 6-digit passcode. Please try again.');
+      setPasscodeEntry('');
+    }
+  };
+
+  const handlePasscodeDigit = (digit: string) => {
+    if (passcodeEntry.length >= 6) return;
+    setPasscodeError(null);
+    const nextValue = passcodeEntry + digit;
+    setPasscodeEntry(nextValue);
+    if (nextValue.length === 6) {
+      verifyPasscodeValue(nextValue);
+    }
+  };
+
+  const handlePasscodeBackspace = () => {
+    setPasscodeError(null);
+    setPasscodeEntry((prev) => prev.slice(0, -1));
+  };
+
+  const handlePasscodeClear = () => {
+    setPasscodeError(null);
+    setPasscodeEntry('');
+  };
+
+  const handlePasscodeInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const digitsOnly = e.target.value.replace(/\D/g, '').slice(0, 6);
+    setPasscodeError(null);
+    setPasscodeEntry(digitsOnly);
+    if (digitsOnly.length === 6) {
+      verifyPasscodeValue(digitsOnly);
+    }
+  };
+
+  const handleLockAdminPanel = () => {
+    setIsPasscodeUnlocked(false);
+    setPasscodeEntry('');
+    setPasscodeError(null);
+  };
+
+  const handleSaveNewPasscode = (e: React.FormEvent) => {
+    e.preventDefault();
+    setPinChangeMessage(null);
+
+    if (currentPinInput !== storedPasscode) {
+      setPinChangeMessage({
+        type: 'error',
+        text: 'Current 6-digit passcode is incorrect.',
+      });
+      return;
+    }
+
+    if (!/^\d{6}$/.test(newPinInput)) {
+      setPinChangeMessage({
+        type: 'error',
+        text: 'New passcode must be exactly 6 numeric digits (0-9).',
+      });
+      return;
+    }
+
+    if (newPinInput !== confirmPinInput) {
+      setPinChangeMessage({
+        type: 'error',
+        text: 'New passcode and confirmation do not match.',
+      });
+      return;
+    }
+
+    saveToStorage('adminPasscode', newPinInput);
+    setStoredPasscode(newPinInput);
+    setCurrentPinInput('');
+    setNewPinInput('');
+    setConfirmPinInput('');
+    setPinChangeMessage({
+      type: 'success',
+      text: '6-digit admin passcode updated successfully!',
+    });
+  };
+
+  // Render 6-Digit Passcode Login Screen when locked
+  if (!isPasscodeUnlocked) {
+    return (
+      <div className="space-y-4 pb-24 max-w-md mx-auto">
+        <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs space-y-5 text-center">
+          <div className="w-12 h-12 rounded-2xl bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 flex items-center justify-center mx-auto border border-emerald-200/80 dark:border-emerald-700">
+            <KeyRound className="w-6 h-6" />
+          </div>
+
+          <div className="space-y-1">
+            <h2 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
+              Admin Panel Login
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400">
+              Enter your 6-digit passcode to unlock the Admin Panel
+            </p>
+          </div>
+
+          {/* 6-Digit Passcode Boxes + Accessible Keyboard Input */}
+          <label className="block cursor-pointer relative">
+            <input
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={6}
+              autoFocus
+              value={passcodeEntry}
+              onChange={handlePasscodeInputChange}
+              aria-label="6-digit admin passcode"
+              className="sr-only"
+            />
+            <div className="grid grid-cols-6 gap-2 max-w-[270px] mx-auto">
+              {[0, 1, 2, 3, 4, 5].map((index) => {
+                const isFilled = index < passcodeEntry.length;
+                const isActive = index === passcodeEntry.length;
+                return (
+                  <div
+                    key={index}
+                    className={`h-12 rounded-xl border-2 flex items-center justify-center font-mono text-lg font-extrabold transition ${
+                      isFilled
+                        ? 'border-emerald-600 bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300'
+                        : isActive
+                        ? 'border-emerald-500 bg-white dark:bg-slate-900 ring-2 ring-emerald-500/20'
+                        : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/60 text-slate-400'
+                    }`}
+                  >
+                    {isFilled ? '●' : ''}
+                  </div>
+                );
+              })}
+            </div>
+          </label>
+
+          {passcodeError && (
+            <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/50 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs font-bold flex items-center justify-center gap-1.5">
+              <XCircle className="w-4 h-4 shrink-0" />
+              <span>{passcodeError}</span>
+            </div>
+          )}
+
+
+
+
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4 pb-24 max-w-md mx-auto">
       {/* Title */}
@@ -388,8 +569,19 @@ export const Settings: React.FC<SettingsProps> = ({
           </h2>
           <p className="text-xs text-slate-500 dark:text-slate-400">Admin driving, admin trips, vehicle details & settings</p>
         </div>
-        <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
-          <SettingsIcon className="w-5 h-5" />
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleLockAdminPanel}
+            title="Lock Admin Panel"
+            className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-700 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-slate-700 dark:text-slate-200 hover:text-rose-700 dark:hover:text-rose-300 border border-slate-200 dark:border-slate-600 text-[11px] font-bold flex items-center gap-1 transition"
+          >
+            <Lock className="w-3.5 h-3.5" />
+            <span>Lock</span>
+          </button>
+          <div className="p-2 rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+            <SettingsIcon className="w-5 h-5" />
+          </div>
         </div>
       </div>
 
@@ -953,6 +1145,103 @@ export const Settings: React.FC<SettingsProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Security: 6-Digit Admin Passcode */}
+      <form
+        onSubmit={handleSaveNewPasscode}
+        className="bg-white dark:bg-slate-800 p-4 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-xs space-y-3"
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-700 pb-2">
+          <h3 className="text-xs font-bold text-slate-900 dark:text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
+            <KeyRound className="w-4 h-4 text-emerald-700 dark:text-emerald-400" />
+            <span>Admin 6-Digit Passcode</span>
+          </h3>
+          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 font-mono">
+            6-Digit PIN
+          </span>
+        </div>
+
+        <p className="text-[11px] text-slate-500 dark:text-slate-400 leading-relaxed">
+          Update the 6-digit numeric passcode required to unlock the Admin Panel.
+        </p>
+
+        <div className="grid grid-cols-3 gap-2 text-xs">
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+              Current PIN
+            </label>
+            <input
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={6}
+              disabled={!isAdmin}
+              placeholder="••••••"
+              value={currentPinInput}
+              onChange={(e) => setCurrentPinInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 font-mono font-bold text-center tracking-widest disabled:bg-slate-100 disabled:text-slate-500"
+            />
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+              New 6-Digit
+            </label>
+            <input
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={6}
+              disabled={!isAdmin}
+              placeholder="••••••"
+              value={newPinInput}
+              onChange={(e) => setNewPinInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 font-mono font-bold text-center tracking-widest disabled:bg-slate-100 disabled:text-slate-500"
+            />
+          </div>
+          <div>
+            <label className="block font-bold text-slate-700 dark:text-slate-300 mb-1">
+              Confirm PIN
+            </label>
+            <input
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={6}
+              disabled={!isAdmin}
+              placeholder="••••••"
+              value={confirmPinInput}
+              onChange={(e) => setConfirmPinInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              className="w-full px-2.5 py-2 rounded-xl border border-slate-300 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-100 font-mono font-bold text-center tracking-widest disabled:bg-slate-100 disabled:text-slate-500"
+            />
+          </div>
+        </div>
+
+        {pinChangeMessage && (
+          <div
+            className={`p-2.5 rounded-xl text-xs font-bold flex items-center gap-2 ${
+              pinChangeMessage.type === 'success'
+                ? 'bg-emerald-100 text-emerald-900 dark:bg-emerald-900/50 dark:text-emerald-200'
+                : 'bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/50 dark:text-rose-300 dark:border-rose-800'
+            }`}
+          >
+            {pinChangeMessage.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-700 dark:text-emerald-300 shrink-0" />
+            ) : (
+              <XCircle className="w-4 h-4 text-rose-600 dark:text-rose-400 shrink-0" />
+            )}
+            <span>{pinChangeMessage.text}</span>
+          </div>
+        )}
+
+        {isAdmin && (
+          <button
+            type="submit"
+            className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 dark:bg-emerald-700 dark:hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition shadow-xs"
+          >
+            Update 6-Digit Passcode
+          </button>
+        )}
+      </form>
 
       {/* Vehicle Profile */}
       <form onSubmit={handleSaveVehicle} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs space-y-3">

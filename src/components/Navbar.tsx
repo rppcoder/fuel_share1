@@ -54,16 +54,23 @@ export const Navbar: React.FC<NavbarProps> = ({
           {/* PWA Install Button */}
           <PWAInstallButton />
 
-          {/* Role badge */}
+          {/* Role badge / Admin Panel access */}
           <div
-            title={`Role: ${role === 'admin' ? 'Administrator' : 'Driver'}`}
-            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-800 text-emerald-200 text-xs font-semibold border border-emerald-700/60"
+            onClick={() => onSelectScreen('admin')}
+            title="Open Admin Panel"
+            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-800 hover:bg-emerald-700 text-emerald-200 text-xs font-semibold border border-emerald-700/60 cursor-pointer active:scale-95 transition"
           >
             {role === 'admin' ? (
-              <Shield className="w-3.5 h-3.5 text-amber-300" />
+              <Shield
+                onClick={() => onSelectScreen('admin')}
+                className="w-3.5 h-3.5 text-amber-300 cursor-pointer"
+              />
             ) : (
               <>
-                <User className="w-3 h-3 text-emerald-300" />
+                <User
+                  onClick={() => onSelectScreen('admin')}
+                  className="w-3 h-3 text-emerald-300 cursor-pointer"
+                />
                 <span className="text-[11px]">Driver</span>
               </>
             )}
