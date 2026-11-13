@@ -12,7 +12,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { MonthSummaryReport, UserRole, Settlement } from '../types/database';
-import { formatLKR, formatKM } from '../lib/accounting';
+import { formatLKR, formatKM, getCurrentMonthString } from '../lib/accounting';
 
 interface SettlementsProps {
   report: MonthSummaryReport;
@@ -35,6 +35,9 @@ export const Settlements: React.FC<SettlementsProps> = ({
   const [showAmendModal, setShowAmendModal] = useState<boolean>(false);
   const [amendReason, setAmendReason] = useState<string>('');
   const [showSnapshotView, setShowSnapshotView] = useState<boolean>(false);
+
+  const currentMonthStr = getCurrentMonthString();
+  const isCurrentMonth = selectedMonth === currentMonthStr;
 
   const settlement = report.settlement;
   const isConfirmed = settlement?.status === 'confirmed';
@@ -106,16 +109,28 @@ export const Settlements: React.FC<SettlementsProps> = ({
         <button
           onClick={handlePrev}
           className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-600 active:scale-95 transition"
+          title="Previous Month"
         >
           <ChevronLeft className="w-5 h-5" />
         </button>
         <div className="text-center">
-          <div className="text-[10px] uppercase font-bold text-slate-400">Monthly Settlement</div>
+          <div className="text-[10px] uppercase font-bold text-slate-400 flex items-center justify-center gap-1.5">
+            <span>Monthly Settlement</span>
+            {!isCurrentMonth && (
+              <button
+                onClick={() => onMonthChange(currentMonthStr)}
+                className="text-[9px] font-extrabold px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded-full hover:bg-emerald-200 transition active:scale-95 border border-emerald-200"
+              >
+                Today
+              </button>
+            )}
+          </div>
           <span className="font-extrabold text-slate-900 text-sm">{monthName}</span>
         </div>
         <button
           onClick={handleNext}
           className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-600 active:scale-95 transition"
+          title="Next Month"
         >
           <ChevronRight className="w-5 h-5" />
         </button>

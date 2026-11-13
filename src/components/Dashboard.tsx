@@ -21,7 +21,7 @@ import {
   FuelPurchase,
   Expense,
 } from '../types/database';
-import { formatLKR, formatKM, isAdminDriver } from '../lib/accounting';
+import { formatLKR, formatKM, isAdminDriver, getCurrentMonthString } from '../lib/accounting';
 
 interface DashboardProps {
   report: MonthSummaryReport;
@@ -61,6 +61,9 @@ export const Dashboard: React.FC<DashboardProps> = ({
     onMonthChange(next);
   };
 
+  const currentMonthStr = getCurrentMonthString();
+  const isCurrentMonth = selectedMonth === currentMonthStr;
+
   const dateObj = new Date(`${selectedMonth}-01T00:00:00Z`);
   const formattedMonth = dateObj.toLocaleDateString('en-LK', {
     month: 'long',
@@ -74,16 +77,27 @@ export const Dashboard: React.FC<DashboardProps> = ({
         <button
           onClick={handlePrevMonth}
           className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-600 active:scale-95 transition"
+          title="Previous Month"
         >
           <ChevronLeft className="w-5 h-5" />
         </button>
         <div className="flex items-center gap-2">
           <Calendar className="w-4 h-4 text-emerald-700" />
           <span className="font-extrabold text-slate-900 text-sm">{formattedMonth}</span>
+          {!isCurrentMonth && (
+            <button
+              onClick={() => onMonthChange(currentMonthStr)}
+              className="px-2 py-0.5 text-[10px] font-extrabold bg-emerald-100 text-emerald-800 rounded-full hover:bg-emerald-200 transition active:scale-95 border border-emerald-200"
+              title="Go to Current Month"
+            >
+              Today
+            </button>
+          )}
         </div>
         <button
           onClick={handleNextMonth}
           className="p-1.5 rounded-xl hover:bg-slate-100 text-slate-600 active:scale-95 transition"
+          title="Next Month"
         >
           <ChevronRight className="w-5 h-5" />
         </button>

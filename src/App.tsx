@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Navbar } from './components/Navbar';
 import { BottomNav } from './components/BottomNav';
 import { OfflineIndicator } from './components/OfflineIndicator';
@@ -40,6 +40,7 @@ import {
   generateMonthlyReport,
   DEFAULT_ADMIN_DRIVER_ID,
   isAdminDriver,
+  getCurrentMonthString,
 } from './lib/accounting';
 import {
   getOfflineDrafts,
@@ -111,12 +112,14 @@ const INITIAL_DRIVERS: Driver[] = [
   },
 ];
 
+const curMonthStr = getCurrentMonthString();
+
 const INITIAL_RATE: ContributionRate = {
   id: DEFAULT_RATE_ID,
   household_id: DEFAULT_HOUSEHOLD_ID,
   vehicle_id: DEFAULT_VEHICLE_ID,
   amount_per_km: 35.0,
-  effective_from: '2026-10-01',
+  effective_from: `${curMonthStr}-01`,
   created_at: new Date().toISOString(),
 };
 
@@ -126,7 +129,7 @@ const INITIAL_TRIPS: Trip[] = [
     household_id: DEFAULT_HOUSEHOLD_ID,
     vehicle_id: DEFAULT_VEHICLE_ID,
     driver_id: DEFAULT_DRIVER1_ID,
-    trip_date: '2026-10-18',
+    trip_date: `${curMonthStr}-05`,
     start_odometer_km: 12380.0,
     end_odometer_km: 12412.0,
     distance_km: 32.0,
@@ -134,15 +137,15 @@ const INITIAL_TRIPS: Trip[] = [
     calculated_contribution: 1120.0,
     status: 'completed',
     notes: 'Pettah market delivery shift',
-    created_at: '2026-10-18T10:00:00Z',
-    updated_at: '2026-10-18T10:00:00Z',
+    created_at: `${curMonthStr}-05T10:00:00Z`,
+    updated_at: `${curMonthStr}-05T10:00:00Z`,
   },
   {
     id: DEFAULT_TRIP2_ID,
     household_id: DEFAULT_HOUSEHOLD_ID,
     vehicle_id: DEFAULT_VEHICLE_ID,
     driver_id: DEFAULT_DRIVER2_ID,
-    trip_date: '2026-10-19',
+    trip_date: `${curMonthStr}-08`,
     start_odometer_km: 12412.0,
     end_odometer_km: 12450.0,
     distance_km: 38.0,
@@ -150,8 +153,8 @@ const INITIAL_TRIPS: Trip[] = [
     calculated_contribution: 1330.0,
     status: 'completed',
     notes: 'Kaduwela school run & evening hires',
-    created_at: '2026-10-19T18:00:00Z',
-    updated_at: '2026-10-19T18:00:00Z',
+    created_at: `${curMonthStr}-08T18:00:00Z`,
+    updated_at: `${curMonthStr}-08T18:00:00Z`,
   },
 ];
 
@@ -160,14 +163,14 @@ const INITIAL_FUEL: FuelPurchase[] = [
     id: DEFAULT_FUEL_ID,
     household_id: DEFAULT_HOUSEHOLD_ID,
     vehicle_id: DEFAULT_VEHICLE_ID,
-    purchase_date: '2026-10-18',
+    purchase_date: `${curMonthStr}-05`,
     fuel_type: 'Petrol 92 Octane',
     amount_lkr: 3450.0,
     litres: 9.8,
     odometer_km: 12380.0,
     paid_by: 'Kamal Perera',
     notes: 'Ceypetco Borella shed',
-    created_at: '2026-10-18T08:30:00Z',
+    created_at: `${curMonthStr}-05T08:30:00Z`,
   },
 ];
 
@@ -177,12 +180,12 @@ const INITIAL_PAYMENTS: Payment[] = [
     household_id: DEFAULT_HOUSEHOLD_ID,
     driver_id: DEFAULT_DRIVER1_ID,
     amount_lkr: 1000.0,
-    payment_date: '2026-10-20',
+    payment_date: `${curMonthStr}-09`,
     payment_method: 'cash',
-    allocated_month: '2026-10',
+    allocated_month: curMonthStr,
     reference: 'Cash in box',
     notes: 'Weekly contribution deposit',
-    created_at: '2026-10-20T12:00:00Z',
+    created_at: `${curMonthStr}-09T12:00:00Z`,
   },
 ];
 
@@ -214,7 +217,7 @@ export default function App() {
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
-  const [selectedMonth, setSelectedMonth] = useState<string>('2026-10');
+  const [selectedMonth, setSelectedMonth] = useState<string>(() => getCurrentMonthString());
   const [userRole, setUserRole] = useState<UserRole>(() => getFromStorage<UserRole>('userRole', 'admin'));
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     return getFromStorage<'light' | 'dark'>('theme', 'light');
@@ -295,104 +298,143 @@ export default function App() {
 
   const [isSyncingDrafts, setIsSyncingDrafts] = useState<boolean>(false);
 
+  // Refs to prevent redundant cloud queries, realtime storms, and stale overwrite races
+  const hasEnsuredHouseholdRef = useRef<boolean>(false);
+  const isLoadingCloudRef = useRef<boolean>(false);
+  const recentlyDeletedTripIdsRef = useRef<Set<string>>(new Set());
+  const pendingTripUpsertsRef = useRef<Map<string, Trip>>(new Map());
+  const realtimeDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Refresh config state
   const refreshConfig = useCallback(() => {
     setSupabaseConfig(getSupabaseConfig());
   }, []);
 
-  // Fetch data from Supabase if connected
+  // Fetch data from Supabase if connected (parallelized for speed)
   const loadCloudData = useCallback(async () => {
     const client = getSupabaseClient();
-    if (!client) return;
+    if (!client || isLoadingCloudRef.current) return;
 
+    isLoadingCloudRef.current = true;
     try {
-      // 0. Ensure default household row exists in Supabase so foreign key checks pass
-      await client.from('households').upsert({
-        id: DEFAULT_HOUSEHOLD_ID,
-        name: 'Colombo Household',
-        created_at: new Date().toISOString(),
-      });
+      // Ensure default household row exists once per session so foreign key checks pass
+      if (!hasEnsuredHouseholdRef.current) {
+        hasEnsuredHouseholdRef.current = true;
+        await client.from('households').upsert({
+          id: DEFAULT_HOUSEHOLD_ID,
+          name: 'Colombo Household',
+          created_at: new Date().toISOString(),
+        });
+      }
+
+      // Fetch all core tables in parallel instead of sequentially
+      const [
+        vRes,
+        dRes,
+        rRes,
+        tRes,
+        fRes,
+        eRes,
+        pRes,
+        sRes,
+      ] = await Promise.all([
+        client.from('vehicles').select('*').limit(1).maybeSingle(),
+        client.from('drivers').select('*').order('created_at', { ascending: true }),
+        client
+          .from('contribution_rates')
+          .select('*')
+          .order('effective_from', { ascending: false })
+          .order('created_at', { ascending: false }),
+        client
+          .from('trips')
+          .select('*, driver:drivers(*)')
+          .order('trip_date', { ascending: false }),
+        client
+          .from('fuel_purchases')
+          .select('*')
+          .order('purchase_date', { ascending: false }),
+        client
+          .from('expenses')
+          .select('*')
+          .order('expense_date', { ascending: false }),
+        client
+          .from('payments')
+          .select('*, driver:drivers(*)')
+          .order('payment_date', { ascending: false }),
+        client.from('settlements').select('*'),
+      ]);
 
       // 1. Vehicle
-      const { data: vData } = await client.from('vehicles').select('*').limit(1).maybeSingle();
-      if (vData && isValidUuid(vData.id)) {
-        setVehicle(vData);
-        saveToStorage('vehicle', vData);
-      } else {
-        await client.from('vehicles').upsert(INITIAL_VEHICLE);
+      if (vRes.data && isValidUuid(vRes.data.id)) {
+        setVehicle(vRes.data);
+        saveToStorage('vehicle', vRes.data);
+      } else if (!vRes.error) {
+        client.from('vehicles').upsert(INITIAL_VEHICLE).then(() => {});
       }
 
       // 2. Drivers
-      const { data: dData } = await client.from('drivers').select('*').order('created_at', { ascending: true });
-      if (dData && dData.length > 0) {
-        setDrivers(dData);
-        saveToStorage('drivers', dData);
-      } else {
-        await client.from('drivers').upsert(INITIAL_DRIVERS);
+      if (dRes.data && dRes.data.length > 0) {
+        setDrivers(dRes.data);
+        saveToStorage('drivers', dRes.data);
+      } else if (!dRes.error) {
+        client.from('drivers').upsert(INITIAL_DRIVERS).then(() => {});
       }
 
       // 3. Rates
-      const { data: rData } = await client
-        .from('contribution_rates')
-        .select('*')
-        .order('effective_from', { ascending: false })
-        .order('created_at', { ascending: false });
-      if (rData && rData.length > 0) {
-        setActiveRate(rData[0]);
-        saveToStorage('rate', rData[0]);
-        setRatesHistory(rData);
-      } else {
-        await client.from('contribution_rates').upsert(INITIAL_RATE);
+      if (rRes.data && rRes.data.length > 0) {
+        setActiveRate(rRes.data[0]);
+        saveToStorage('rate', rRes.data[0]);
+        setRatesHistory(rRes.data);
+      } else if (!rRes.error) {
+        client.from('contribution_rates').upsert(INITIAL_RATE).then(() => {});
       }
 
-      // 4. Trips
-      const { data: tData } = await client
-        .from('trips')
-        .select('*, driver:drivers(*)')
-        .order('trip_date', { ascending: false });
-      if (tData) {
-        setTrips(tData);
-        saveToStorage('trips', tData);
+      // 4. Trips (merge pending local upserts and filter recently deleted IDs to avoid flicker)
+      if (tRes.data) {
+        const deletedSet = recentlyDeletedTripIdsRef.current;
+        const pendingMap = pendingTripUpsertsRef.current;
+
+        const mergedTrips = (tRes.data as Trip[])
+          .filter((t) => !deletedSet.has(t.id))
+          .map((t) => (pendingMap.has(t.id) ? pendingMap.get(t.id)! : t));
+
+        pendingMap.forEach((pendingTrip, id) => {
+          if (!deletedSet.has(id) && !mergedTrips.some((t) => t.id === id)) {
+            mergedTrips.unshift(pendingTrip);
+          }
+        });
+
+        setTrips(mergedTrips);
+        saveToStorage('trips', mergedTrips);
       }
 
       // 5. Fuel
-      const { data: fData } = await client
-        .from('fuel_purchases')
-        .select('*')
-        .order('purchase_date', { ascending: false });
-      if (fData) {
-        setFuelPurchases(fData);
-        saveToStorage('fuel', fData);
+      if (fRes.data) {
+        setFuelPurchases(fRes.data);
+        saveToStorage('fuel', fRes.data);
       }
 
       // 6. Expenses
-      const { data: eData } = await client
-        .from('expenses')
-        .select('*')
-        .order('expense_date', { ascending: false });
-      if (eData) {
-        setExpenses(eData);
-        saveToStorage('expenses', eData);
+      if (eRes.data) {
+        setExpenses(eRes.data);
+        saveToStorage('expenses', eRes.data);
       }
 
       // 7. Payments
-      const { data: pData } = await client
-        .from('payments')
-        .select('*, driver:drivers(*)')
-        .order('payment_date', { ascending: false });
-      if (pData) {
-        setPayments(pData);
-        saveToStorage('payments', pData);
+      if (pRes.data) {
+        setPayments(pRes.data);
+        saveToStorage('payments', pRes.data);
       }
 
       // 8. Settlements
-      const { data: sData } = await client.from('settlements').select('*');
-      if (sData) {
-        setSettlements(sData);
-        saveToStorage('settlements', sData);
+      if (sRes.data) {
+        setSettlements(sRes.data);
+        saveToStorage('settlements', sRes.data);
       }
     } catch (err) {
       console.warn('Error loading Supabase data:', err);
+    } finally {
+      isLoadingCloudRef.current = false;
     }
   }, []);
 
@@ -408,7 +450,7 @@ export default function App() {
     window.addEventListener('focus', handleFocusOrVisibility);
     document.addEventListener('visibilitychange', handleFocusOrVisibility);
 
-    // Setup Supabase Realtime subscription for instant live cross-device sync
+    // Setup Supabase Realtime subscription with debounce (skips audit_logs churn)
     const client = getSupabaseClient();
     let channel: any = null;
 
@@ -416,8 +458,14 @@ export default function App() {
       try {
         channel = client
           .channel('public-db-sync')
-          .on('postgres_changes', { event: '*', schema: 'public' }, () => {
-            loadCloudData();
+          .on('postgres_changes', { event: '*', schema: 'public' }, (payload: any) => {
+            if (payload?.table === 'audit_logs') return;
+            if (realtimeDebounceRef.current) {
+              clearTimeout(realtimeDebounceRef.current);
+            }
+            realtimeDebounceRef.current = setTimeout(() => {
+              loadCloudData();
+            }, 800);
           })
           .subscribe();
       } catch (err) {
@@ -428,6 +476,9 @@ export default function App() {
     return () => {
       window.removeEventListener('focus', handleFocusOrVisibility);
       document.removeEventListener('visibilitychange', handleFocusOrVisibility);
+      if (realtimeDebounceRef.current) {
+        clearTimeout(realtimeDebounceRef.current);
+      }
       if (channel) {
         const currentClient = getSupabaseClient();
         if (currentClient) {
@@ -536,17 +587,74 @@ export default function App() {
     }
   };
 
-  // Trip operations
-  const handleSaveTrip = async (tripData: Partial<Trip>): Promise<boolean> => {
+  // Trip operations (Optimistic instant UI + non-blocking background Supabase sync)
+  const syncTripInsertInBackground = async (
+    completeTrip: Trip,
+    newOdoToSync: number | null,
+    preSyncPromise?: Promise<unknown>
+  ) => {
     const client = getSupabaseClient();
     const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
 
+    if (!client || !isOnline) {
+      saveOfflineDraft(completeTrip);
+      pendingTripUpsertsRef.current.delete(completeTrip.id);
+      return;
+    }
+
+    try {
+      if (preSyncPromise) {
+        await preSyncPromise;
+      }
+
+      const tasks: PromiseLike<unknown>[] = [
+        client.from('trips').insert({
+          id: completeTrip.id,
+          household_id: completeTrip.household_id,
+          vehicle_id: completeTrip.vehicle_id,
+          driver_id: completeTrip.driver_id,
+          trip_date: completeTrip.trip_date,
+          start_odometer_km: completeTrip.start_odometer_km,
+          end_odometer_km: completeTrip.end_odometer_km,
+          rate_per_km_snapshot: completeTrip.rate_per_km_snapshot,
+          calculated_contribution: completeTrip.calculated_contribution,
+          status: completeTrip.status,
+          notes: completeTrip.notes,
+        }),
+      ];
+
+      if (newOdoToSync !== null) {
+        tasks.push(
+          client
+            .from('vehicles')
+            .update({ current_odometer_km: newOdoToSync })
+            .eq('id', completeTrip.vehicle_id)
+        );
+      }
+
+      const [insertResult] = (await Promise.all(tasks)) as [{ error?: { message: string } | null }, unknown];
+      if (insertResult?.error) {
+        console.warn('Supabase insert notice:', insertResult.error.message);
+        saveOfflineDraft(completeTrip);
+      }
+    } catch {
+      saveOfflineDraft(completeTrip);
+    } finally {
+      pendingTripUpsertsRef.current.delete(completeTrip.id);
+    }
+  };
+
+  const handleSaveTrip = async (tripData: Partial<Trip>): Promise<boolean> => {
     const newTripId = generateUuid();
+    const targetDriverId = ensureUuid(tripData.driver_id, DEFAULT_DRIVER1_ID);
+    const matchedDriver = drivers.find((d) => d.id === targetDriverId);
+
     const completeTrip: Trip = {
       id: newTripId,
       household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
       vehicle_id: ensureUuid(vehicle.id, DEFAULT_VEHICLE_ID),
-      driver_id: ensureUuid(tripData.driver_id, DEFAULT_DRIVER1_ID),
+      driver_id: targetDriverId,
+      driver: matchedDriver,
       trip_date: tripData.trip_date!,
       start_odometer_km: tripData.start_odometer_km!,
       end_odometer_km: tripData.end_odometer_km ?? null,
@@ -559,38 +667,7 @@ export default function App() {
       updated_at: new Date().toISOString(),
     };
 
-    if (client && isOnline) {
-      try {
-        const { data, error } = await client
-          .from('trips')
-          .insert({
-            id: completeTrip.id,
-            household_id: completeTrip.household_id,
-            vehicle_id: completeTrip.vehicle_id,
-            driver_id: completeTrip.driver_id,
-            trip_date: completeTrip.trip_date,
-            start_odometer_km: completeTrip.start_odometer_km,
-            end_odometer_km: completeTrip.end_odometer_km,
-            rate_per_km_snapshot: completeTrip.rate_per_km_snapshot,
-            calculated_contribution: completeTrip.calculated_contribution,
-            status: completeTrip.status,
-            notes: completeTrip.notes,
-          })
-          .select()
-          .single();
-
-        if (error) {
-          console.warn('Supabase insert notice:', error.message);
-          saveOfflineDraft(completeTrip);
-        } else if (data) {
-          completeTrip.id = data.id;
-        }
-      } catch {
-        saveOfflineDraft(completeTrip);
-      }
-    } else {
-      saveOfflineDraft(completeTrip);
-    }
+    pendingTripUpsertsRef.current.set(completeTrip.id, completeTrip);
 
     setTrips((prev) => {
       const updated = [completeTrip, ...prev];
@@ -598,17 +675,19 @@ export default function App() {
       return updated;
     });
 
+    let newOdoToSync: number | null = null;
     if (completeTrip.status === 'completed' && completeTrip.end_odometer_km) {
       const newOdo = Math.max(vehicle.current_odometer_km, completeTrip.end_odometer_km);
+      newOdoToSync = newOdo;
       setVehicle((v) => {
         const updated = { ...v, current_odometer_km: newOdo };
         saveToStorage('vehicle', updated);
         return updated;
       });
-      if (client && isOnline) {
-        client.from('vehicles').update({ current_odometer_km: newOdo }).eq('id', vehicle.id);
-      }
     }
+
+    // Fire and forget cloud sync so UI completes immediately
+    void syncTripInsertInBackground(completeTrip, newOdoToSync);
 
     return true;
   };
@@ -619,6 +698,8 @@ export default function App() {
     const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
 
     let adminDrv = drivers.find((d) => isAdminDriver(d));
+    let preSyncDriverPromise: Promise<unknown> | undefined;
+
     if (!adminDrv) {
       adminDrv = {
         id: DEFAULT_ADMIN_DRIVER_ID,
@@ -635,25 +716,62 @@ export default function App() {
         return updated;
       });
       if (client && isOnline) {
-        await client.from('drivers').upsert({
-          id: adminDrv.id,
-          household_id: adminDrv.household_id,
-          display_name: adminDrv.display_name,
-          whatsapp_number: adminDrv.whatsapp_number,
-          active: true,
-          created_at: adminDrv.created_at,
-          updated_at: adminDrv.updated_at,
-        });
+        const drvToSave = adminDrv;
+        preSyncDriverPromise = Promise.resolve(
+          client.from('drivers').upsert({
+            id: drvToSave.id,
+            household_id: drvToSave.household_id,
+            display_name: drvToSave.display_name,
+            whatsapp_number: drvToSave.whatsapp_number,
+            active: true,
+            created_at: drvToSave.created_at,
+            updated_at: drvToSave.updated_at,
+          })
+        );
       }
     }
 
-    return handleSaveTrip({
-      ...tripData,
+    const newTripId = generateUuid();
+    const completeTrip: Trip = {
+      id: newTripId,
+      household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
+      vehicle_id: ensureUuid(vehicle.id, DEFAULT_VEHICLE_ID),
       driver_id: adminDrv.id,
+      driver: adminDrv,
+      trip_date: tripData.trip_date!,
+      start_odometer_km: tripData.start_odometer_km!,
+      end_odometer_km: tripData.end_odometer_km ?? null,
+      distance_km: tripData.distance_km || 0,
       rate_per_km_snapshot: 0,
       calculated_contribution: 0,
       status: 'completed',
+      notes: tripData.notes || null,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    pendingTripUpsertsRef.current.set(completeTrip.id, completeTrip);
+
+    setTrips((prev) => {
+      const updated = [completeTrip, ...prev];
+      saveToStorage('trips', updated);
+      return updated;
     });
+
+    let newOdoToSync: number | null = null;
+    if (completeTrip.end_odometer_km) {
+      const newOdo = Math.max(vehicle.current_odometer_km, completeTrip.end_odometer_km);
+      newOdoToSync = newOdo;
+      setVehicle((v) => {
+        const updated = { ...v, current_odometer_km: newOdo };
+        saveToStorage('vehicle', updated);
+        return updated;
+      });
+    }
+
+    void syncTripInsertInBackground(completeTrip, newOdoToSync, preSyncDriverPromise);
+
+    return true;
   };
 
   const handleUpdateTrip = async (
@@ -662,6 +780,7 @@ export default function App() {
     auditReason: string
   ): Promise<boolean> => {
     const client = getSupabaseClient();
+    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
     const oldTrip = trips.find((t) => t.id === tripId);
 
     setTrips((prev) => {
@@ -669,12 +788,14 @@ export default function App() {
         if (t.id !== tripId) return t;
         const nextDriverId = updates.driver_id ?? t.driver_id;
         const matchedDriver = drivers.find((d) => d.id === nextDriverId) || t.driver;
-        return {
+        const nextTrip: Trip = {
           ...t,
           ...updates,
           driver: matchedDriver,
           updated_at: new Date().toISOString(),
         };
+        pendingTripUpsertsRef.current.set(tripId, nextTrip);
+        return nextTrip;
       });
       saveToStorage('trips', updated);
       return updated;
@@ -689,18 +810,24 @@ export default function App() {
       });
     }
 
-    if (client) {
+    if (client && isOnline) {
       const { driver: _driver, is_local_draft: _draft, ...dbUpdates } = updates;
-      await client.from('trips').update(dbUpdates).eq('id', tripId);
-      await client.from('audit_logs').insert({
-        id: generateUuid(),
-        household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
-        entity_type: 'trip',
-        entity_id: tripId,
-        action: 'update_trip',
-        previous_values: oldTrip ? (oldTrip as unknown as Record<string, unknown>) : null,
-        new_values: { ...dbUpdates, reason: auditReason },
+      void Promise.allSettled([
+        client.from('trips').update(dbUpdates).eq('id', tripId),
+        client.from('audit_logs').insert({
+          id: generateUuid(),
+          household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
+          entity_type: 'trip',
+          entity_id: tripId,
+          action: 'update_trip',
+          previous_values: oldTrip ? (oldTrip as unknown as Record<string, unknown>) : null,
+          new_values: { ...dbUpdates, reason: auditReason },
+        }),
+      ]).finally(() => {
+        pendingTripUpsertsRef.current.delete(tripId);
       });
+    } else {
+      pendingTripUpsertsRef.current.delete(tripId);
     }
 
     return true;
@@ -708,25 +835,37 @@ export default function App() {
 
   const handleVoidTrip = async (tripId: string, reason: string): Promise<boolean> => {
     const client = getSupabaseClient();
+    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
     const oldTrip = trips.find((t) => t.id === tripId);
 
     setTrips((prev) => {
-      const updated = prev.map((t) => (t.id === tripId ? { ...t, status: 'void' as const, updated_at: new Date().toISOString() } : t));
+      const updated = prev.map((t) => {
+        if (t.id !== tripId) return t;
+        const nextTrip = { ...t, status: 'void' as const, updated_at: new Date().toISOString() };
+        pendingTripUpsertsRef.current.set(tripId, nextTrip);
+        return nextTrip;
+      });
       saveToStorage('trips', updated);
       return updated;
     });
 
-    if (client) {
-      await client.from('trips').update({ status: 'void' }).eq('id', tripId);
-      await client.from('audit_logs').insert({
-        id: generateUuid(),
-        household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
-        entity_type: 'trip',
-        entity_id: tripId,
-        action: 'void_trip',
-        previous_values: oldTrip ? (oldTrip as unknown as Record<string, unknown>) : null,
-        new_values: { status: 'void', reason },
+    if (client && isOnline) {
+      void Promise.allSettled([
+        client.from('trips').update({ status: 'void' }).eq('id', tripId),
+        client.from('audit_logs').insert({
+          id: generateUuid(),
+          household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
+          entity_type: 'trip',
+          entity_id: tripId,
+          action: 'void_trip',
+          previous_values: oldTrip ? (oldTrip as unknown as Record<string, unknown>) : null,
+          new_values: { status: 'void', reason },
+        }),
+      ]).finally(() => {
+        pendingTripUpsertsRef.current.delete(tripId);
       });
+    } else {
+      pendingTripUpsertsRef.current.delete(tripId);
     }
 
     return true;
@@ -734,7 +873,15 @@ export default function App() {
 
   const handleDeleteTrip = async (tripId: string, reason?: string): Promise<boolean> => {
     const client = getSupabaseClient();
+    const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true;
     const oldTrip = trips.find((t) => t.id === tripId);
+
+    // Protect against stale cloud reloads resurrecting the deleted trip
+    recentlyDeletedTripIdsRef.current.add(tripId);
+    pendingTripUpsertsRef.current.delete(tripId);
+    setTimeout(() => {
+      recentlyDeletedTripIdsRef.current.delete(tripId);
+    }, 15000);
 
     setTrips((prev) => {
       const updated = prev.filter((t) => t.id !== tripId);
@@ -743,17 +890,19 @@ export default function App() {
     });
     removeOfflineDraft(tripId);
 
-    if (client) {
-      await client.from('trips').delete().eq('id', tripId);
-      await client.from('audit_logs').insert({
-        id: generateUuid(),
-        household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
-        entity_type: 'trip',
-        entity_id: tripId,
-        action: 'delete_trip',
-        previous_values: oldTrip ? (oldTrip as unknown as Record<string, unknown>) : null,
-        new_values: { deleted: true, reason: reason || 'Deleted by administrator' },
-      });
+    if (client && isOnline) {
+      void Promise.allSettled([
+        client.from('trips').delete().eq('id', tripId),
+        client.from('audit_logs').insert({
+          id: generateUuid(),
+          household_id: ensureUuid(vehicle.household_id, DEFAULT_HOUSEHOLD_ID),
+          entity_type: 'trip',
+          entity_id: tripId,
+          action: 'delete_trip',
+          previous_values: oldTrip ? (oldTrip as unknown as Record<string, unknown>) : null,
+          new_values: { deleted: true, reason: reason || 'Deleted by administrator' },
+        }),
+      ]);
     }
 
     return true;
@@ -1228,6 +1377,11 @@ export default function App() {
             onSetNewRate={handleSetNewRate}
             driverTrips={driverTrips}
             adminTrips={adminTrips}
+            fuelPurchases={fuelPurchases}
+            expenses={expenses}
+            payments={enrichedPayments}
+            selectedMonth={selectedMonth}
+            onMonthChange={setSelectedMonth}
             monthlyReport={monthlyReport}
             onSaveAdminTrip={handleSaveAdminTrip}
             onUpdateTrip={handleUpdateTrip}

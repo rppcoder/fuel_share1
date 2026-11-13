@@ -33,9 +33,13 @@ import {
   Trip,
   TripStatus,
   MonthSummaryReport,
+  FuelPurchase,
+  Expense,
+  Payment,
 } from '../types/database';
-import { formatKM, formatLKR, calculateTrip } from '../lib/accounting';
+import { formatKM, formatLKR, calculateTrip, getCurrentMonthString } from '../lib/accounting';
 import { getFromStorage, saveToStorage } from '../lib/persistence';
+import { AdminAnalytics } from './AdminAnalytics';
 
 interface SettingsProps {
   vehicle: Vehicle | null;
@@ -53,6 +57,11 @@ interface SettingsProps {
   onSetNewRate: (ratePerKm: number, effectiveFrom: string) => Promise<boolean>;
   driverTrips?: Trip[];
   adminTrips?: Trip[];
+  fuelPurchases?: FuelPurchase[];
+  expenses?: Expense[];
+  payments?: Payment[];
+  selectedMonth?: string;
+  onMonthChange?: (month: string) => void;
   monthlyReport?: MonthSummaryReport;
   onSaveAdminTrip?: (tripData: Partial<Trip>) => Promise<boolean>;
   onUpdateTrip?: (tripId: string, updates: Partial<Trip>, auditReason: string) => Promise<boolean>;
@@ -77,6 +86,11 @@ export const Settings: React.FC<SettingsProps> = ({
   onSetNewRate,
   driverTrips = [],
   adminTrips = [],
+  fuelPurchases = [],
+  expenses = [],
+  payments = [],
+  selectedMonth,
+  onMonthChange,
   monthlyReport,
   onSaveAdminTrip,
   onUpdateTrip,
@@ -762,6 +776,20 @@ export const Settings: React.FC<SettingsProps> = ({
           <span>Administrator privileges active. You have full edit authority for all system settings.</span>
         </div>
       )}
+
+      {/* ADMIN ANALYTICS: CHARTS & GRAPHS */}
+      <AdminAnalytics
+        selectedMonth={selectedMonth || monthlyReport?.month || getCurrentMonthString()}
+        onMonthChange={onMonthChange}
+        vehicle={vehicle}
+        drivers={drivers}
+        driverTrips={driverTrips}
+        adminTrips={adminTrips}
+        fuelPurchases={fuelPurchases}
+        expenses={expenses}
+        payments={payments}
+        monthlyReport={monthlyReport}
+      />
 
       {/* ADMIN DRIVING / RECORD ADMIN RUN KM */}
       <div className="bg-white dark:bg-slate-800 p-4 rounded-2xl border-2 border-emerald-600/30 dark:border-emerald-500/40 shadow-xs space-y-3.5">

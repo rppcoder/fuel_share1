@@ -36,6 +36,16 @@ export function formatKM(distance: number | null | undefined): string {
   })} km`;
 }
 
+/**
+ * Get current year and month formatted as YYYY-MM
+ */
+export function getCurrentMonthString(): string {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  return `${year}-${month}`;
+}
+
 export interface TripCalculationResult {
   distanceKm: number;
   ratePerKm: number;

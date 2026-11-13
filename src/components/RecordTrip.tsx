@@ -112,7 +112,7 @@ export const RecordTrip: React.FC<RecordTripProps> = ({
         setTimeout(() => {
           setSubmitSuccess(false);
           onNavigate('trips');
-        }, 1500);
+        }, 450);
       } else {
         setSubmitError('Failed to record trip. Please check your connection.');
       }
